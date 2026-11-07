@@ -200,7 +200,12 @@ label.weather-option {
     linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
   background-size: var(--cell) var(--cell);
   color: var(--fg);
-  font-family: 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', serif;
+  /* 1文字を1マスに収めるため、縦書き用の字送りの情報を持つ日本語フォントだけを並べる。
+     情報がないフォント(Linux の WenQuanYi Zen Hei など)では字送りが1マスより長くなり、400字が収まらない。
+     macOS/iOS、Windows、Android と Linux(Noto CJK)、Linux(IPA)の順 */
+  font-family:
+    'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP', 'Noto Serif JP', 'IPAexMincho', 'IPAMincho',
+    'Noto Sans CJK JP', 'IPAexGothic', 'IPAGothic', serif;
   font-size: calc(var(--cell) * 0.75);
   line-height: var(--cell);
   letter-spacing: calc(var(--cell) * 0.25);

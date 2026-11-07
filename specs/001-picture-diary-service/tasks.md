@@ -171,7 +171,7 @@ description: "絵日記公開サービスの実装タスク"
 - [X] T079 [P] [US2] 下書きの保存、復元、消去の失敗するテストを apps/web/tests/draft-store.test.ts に作成する
 - [X] T080 [P] [US2] 記入画面と閲覧画面の失敗するテストを apps/web/tests/diary-editor.test.tsx に作成する(日付の初期値が当日、未来の日付を選べない、残り文字数の表示、不足項目の表示、保存失敗時に入力を保持、接続が切れた場合の表示、本文のマークアップが文字として表示される)
 - [X] T081 [P] [US2] 作成、編集、削除、タブを閉じた後の復元の E2E を e2e/diary.spec.ts に作成する
-- [ ] T082 [P] [US2] 全ブラウザと幅360pxで、縦書きの表示と入力が横スクロールなしに動作する E2E を e2e/vertical-writing.spec.ts に作成する。ログインには e2e/helpers/seed-session.ts を使う
+- [X] T082 [P] [US2] 全ブラウザと幅360pxで、縦書きの表示と入力が横スクロールなしに動作する E2E を e2e/vertical-writing.spec.ts に作成する。ログインには e2e/helpers/seed-session.ts を使う
 
 ### Implementation for User Story 2
 
