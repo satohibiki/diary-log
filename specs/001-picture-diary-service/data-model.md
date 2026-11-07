@@ -8,7 +8,7 @@ ID は UUID v7、時刻は `timestamptz` とする。`*_enc` は AES-256-GCM の
 | 列 | 型 | 制約・説明 |
 |---|---|---|
 | id | uuid | 主キー |
-| handle | text | 一意。`^[a-z0-9_]{3,20}$`、予約語を除く。ログイン用の ID |
+| handle | text | 一意。`^[a-z0-9_]{3,20}$`、予約語を除く。画面と仕様書の「ID」に当たる |
 | nickname | text | 1〜20文字(書記素単位) |
 | email_enc | bytea | 暗号化。本人のみ参照。重複可 |
 | avatar_enc | bytea | NULL 可。WebP、400px 以下 |
@@ -78,7 +78,8 @@ ID は UUID v7、時刻は `timestamptz` とする。`*_enc` は AES-256-GCM の
 | expires_at | timestamptz | 10分 |
 | consumed_at | timestamptz | NULL 可 |
 
-ルール: 再送時は、同じ `purpose` と `subject_id` の既存のコードを無効にする。
+ルール: 同じ `purpose` と `subject_id` で有効なコードは3件までとし、超過時は最も古いものを無効に
+する。検証は有効な全件と照合し、失敗は全件の `attempts` に加算する。
 
 ## diaries
 
@@ -136,7 +137,8 @@ approved → (なし)  解除、フォロワーの削除、ブロック
 
 ## 閲覧権限
 
-`canViewDiaries(viewer, owner)` は次の場合のみ true を返す。
+閲覧条件は SQL の述語 `viewableOwnerCondition(viewerId)` として1箇所で定義する。
+`canViewDiaries(viewer, owner)` と一覧の取得は、どちらもこの述語を使う。次の場合のみ閲覧できる。
 
 - `viewer` と `owner` が同じである
 - または次のすべてを満たす

@@ -40,12 +40,12 @@ sharp、Nodemailer、fflate(選定理由は [research.md](./research.md))
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-判定: **設計後の再確認でも合格**(逸脱1件は Complexity Tracking に記録)
+判定: **設計後の再確認でも合格**(逸脱なし)
 
 | 原則・要件 | 判定 | 設計での対応 |
 |---|---|---|
 | I. セキュリティ最優先 | 合格 | 下記の脅威モデル、入力の検証、文字としての表示、厳格な CSP |
-| II. サーバー保存とデータの最小化 | 合格(逸脱1件) | 個人情報はメールのみ、暗号化保存、`no-store`、端末は入力中の内容のみ |
+| II. サーバー保存とデータの最小化 | 合格 | 個人情報はメールのみ、日付を除き暗号化保存、`no-store`、端末は入力中の内容のみ |
 | III. プライバシー保護 | 合格 | 外部スクリプトなし、許可リスト方式のログ、メールに日記の内容を含めない |
 | IV. データの保全と可搬性 | 合格 | IndexedDB の下書き、ZIP のエクスポートとインポート、削除の確認、Drizzle のマイグレーション |
 | V. テスト駆動開発 | 合格 | tasks でテストを実装より先に配置 |
@@ -53,8 +53,8 @@ sharp、Nodemailer、fflate(選定理由は [research.md](./research.md))
 | VII. DRY | 合格 | 検証スキーマを `packages/shared` に集約、閲覧権限は1関数に集約 |
 | VIII. 明示的なエラー処理 | 合格 | 代替処理なし、エラーは RFC 9457 形式で返して画面に表示 |
 | Web プラットフォーム要件 | 合格 | 主要4ブラウザの E2E、幅360pxとキーボード操作の検証 |
-| 品質ゲート | 合格 | `npm run verify` を pre-push フックと CI で実行 |
-| ADR | 合格 | `docs/adr/0001`〜`0004`(提案中。承認時に採択へ変更) |
+| 品質ゲート | 合格 | テスト、lint、型検査、脆弱性検査、秘密情報の検査を `npm run verify` にまとめ、pre-push フックと CI で実行 |
+| ADR | 合格 | `docs/adr/0001`〜`0004`(提案中)。運営者のアクセス、ホスティング、メール配信は tasks で 0005〜0007 に記録 |
 
 ## Security Threat Model
 
@@ -65,12 +65,13 @@ sharp、Nodemailer、fflate(選定理由は [research.md](./research.md))
 
 | 脅威 | 対策 |
 |---|---|
-| 権限のない閲覧(IDOR) | 全閲覧を `canViewDiaries` で判定。権限なしと不存在を同じ404で返す。組み合わせを網羅してテスト |
+| 権限のない閲覧(IDOR) | 閲覧条件を SQL の述語 `viewableOwnerCondition` に一本化。権限なしと不存在を同じ404で返す。組み合わせを網羅してテスト |
 | XSS | React の文字列表示のみ、HTML の直接挿入を lint で禁止、`script-src 'self'` の CSP |
 | CSRF | `SameSite=Strict` の Cookie、`Origin` の検証、JSON または multipart の要求のみ受理 |
 | セッションの窃取 | 256ビットの乱数、`HttpOnly` `Secure` `__Host-` Cookie、DB にはハッシュのみ保存、30日で失効 |
 | メールの乗っ取りによる復旧 | 新しいパスキーの登録のみ許可、既存セッションの失効、登録先への通知 |
-| ワンタイムパスワードの総当たり | 8桁、10分、1回限り、5回まで、送信と検証の回数制限 |
+| ワンタイムパスワードの総当たり | 8桁、10分、1回限り、5回まで、同時に3件まで、送信と検証の回数制限 |
+| 回数制限を悪用した妨害 | ログインの制限は IP と ID の組み合わせを基準とし、ID 単独では止めない。再送で本人のコードを無効にしない |
 | ID の列挙 | ログインと復旧の応答を ID の有無で変えない、検索と登録の回数制限 |
 | 悪意ある画像 | sharp で再エンコード、ピクセル数の上限、`nosniff`、配信は認可付きの API のみ |
 | 位置情報の漏えい | 再エンコードで全メタデータを除去。E2E で確認 |
@@ -80,7 +81,8 @@ sharp、Nodemailer、fflate(選定理由は [research.md](./research.md))
 | ログからの漏えい | 許可したフィールドだけを出力するロガー。テストで機密値の不在を確認 |
 
 **残るリスク**: 暗号鍵を持つ運営者は技術的に内容を読める。タブを閉じただけの場合、下書きは端末に
-残る。メールアドレスは配信事業者に渡る。
+残る。メールアドレスは配信事業者に渡る。第三者が他人の ID で誤った入力を繰り返すと、
+ワンタイムパスワードを失効させて復旧を妨害できる。
 
 ## Project Structure
 
@@ -113,16 +115,21 @@ apps/
 │   └── tests/
 └── web/
     ├── src/
-    │   ├── features/      # auth、diary、calendar、profile、social
+    │   ├── features/      # auth、diary、calendar、profile、social、legal
     │   ├── components/
     │   └── lib/           # API クライアント、下書きの保持
     └── tests/
 packages/
 └── shared/                # 検証スキーマと API の型
 e2e/                       # Playwright
-docs/adr/                  # ADR
+scripts/                   # 開発用証明書、暗号化の確認
+docs/
+├── adr/                   # ADR
+├── operations/            # 本番の運用記録
+└── export-format.md       # エクスポート形式の公開仕様
 .githooks/pre-push
 .github/workflows/ci.yml
+.secretlintrc.json
 compose.yaml               # 開発用の PostgreSQL とメール確認ツール
 Dockerfile
 ```
@@ -132,6 +139,4 @@ Dockerfile
 
 ## Complexity Tracking
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| 原則 II: 絵日記の日付を暗号化しない | 1日1件の一意制約、カレンダー、日付順の一覧に必要 | 暗号化すると全件の復号が必要になり、一意制約も DB で保証できない。本文、天気、画像は暗号化する |
+憲章の違反はない。
