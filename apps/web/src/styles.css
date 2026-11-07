@@ -1,0 +1,352 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fbf8f1;
+  --fg: #2b2620;
+  --muted: #6d6458;
+  --line: #d8cdb8;
+  --accent: #b5482b;
+  --paper: #fffdf7;
+  --grid: #e6d9c0;
+  --error: #b00020;
+  font-family: system-ui, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  line-height: 1.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1d1a16;
+    --fg: #eee6d8;
+    --muted: #b3a894;
+    --line: #4b4337;
+    --accent: #f08a68;
+    --paper: #26221c;
+    --grid: #3d3529;
+    --error: #ff8a80;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-header ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-main {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.error {
+  color: var(--error);
+  font-weight: 600;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+label {
+  display: block;
+  margin: 0.75rem 0 0.25rem;
+  font-weight: 600;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='date'],
+select {
+  width: 100%;
+  max-width: 24rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  background: var(--paper);
+  color: var(--fg);
+}
+
+/* ファイル選択欄の幅はブラウザとフォントで決まり、幅360pxでははみ出すことがあるため、親の幅までに制限する */
+input[type='file'] {
+  max-width: 100%;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- 絵日記 ---------- */
+
+.diary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  align-items: end;
+}
+
+fieldset.weather {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset.weather legend {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+label.weather-option {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  margin: 0;
+  font-weight: 400;
+}
+
+.diary-picture img,
+.diary-image {
+  display: block;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0.5rem 0;
+  border: 2px solid var(--line);
+  border-radius: 0.25rem;
+  background: var(--paper);
+}
+
+/* 原稿用紙風の縦書き。1マス = --cell。20行 × 20字 = 400字 */
+.manuscript {
+  --cell: clamp(14px, calc((100vw - 2rem - 4px) / 20), 24px);
+  margin: 1rem 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.vertical-text {
+  writing-mode: vertical-rl;
+  -webkit-text-orientation: mixed;
+  text-orientation: mixed;
+  box-sizing: content-box;
+  width: calc(var(--cell) * 20);
+  height: calc(var(--cell) * 20);
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 2px solid var(--accent);
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size: var(--cell) var(--cell);
+  color: var(--fg);
+  /* 1文字を1マスに収めるため、縦書き用の字送りの情報を持つ日本語フォントだけを並べる。
+     情報がないフォント(Linux の WenQuanYi Zen Hei など)では字送りが1マスより長くなり、400字が収まらない。
+     macOS/iOS、Windows、Android と Linux(Noto CJK)、Linux(IPA)の順 */
+  font-family:
+    'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP', 'Noto Serif JP', 'IPAexMincho', 'IPAMincho',
+    'Noto Sans CJK JP', 'IPAexGothic', 'IPAGothic', serif;
+  font-size: calc(var(--cell) * 0.75);
+  line-height: var(--cell);
+  letter-spacing: calc(var(--cell) * 0.25);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: none;
+}
+
+.diary-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  align-items: baseline;
+}
+
+.diary-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.diary-header p {
+  margin: 0;
+}
+
+.diary-card {
+  margin: 1.5rem 0;
+}
+
+.diary-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+/* ---------- カレンダー ---------- */
+
+.calendar-nav {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.calendar-nav h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.calendar-grid {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.calendar-grid th,
+.calendar-grid td {
+  padding: 0.125rem;
+  text-align: center;
+}
+
+.calendar-grid .day {
+  display: block;
+  padding: 0.5rem 0;
+  border-radius: 0.375rem;
+  text-decoration: none;
+  color: var(--fg);
+}
+
+.calendar-grid a.day:hover {
+  background: var(--grid);
+}
+
+.calendar-grid .has-diary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.calendar-grid .future {
+  color: var(--muted);
+}
+
+/* ---------- プロフィール ---------- */
+
+.avatar {
+  width: 6rem;
+  height: 6rem;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--line);
+}
+
+.avatar.small {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+fieldset.visibility {
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset.visibility legend {
+  font-weight: 600;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* ---------- フォロー ---------- */
+
+.user-list {
+  padding-left: 1rem;
+}
+
+.user-list li {
+  margin: 0.5rem 0;
+}
+
+.user-list button,
+.search-result button {
+  margin-left: 0.25rem;
+  padding: 0.25rem 0.75rem;
+}
+
+.user-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  align-items: center;
+}
+
+.user-header h1 {
+  margin: 0;
+}

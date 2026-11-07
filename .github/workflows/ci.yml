@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:18
+        env:
+          POSTGRES_USER: diary
+          POSTGRES_PASSWORD: diary
+          POSTGRES_DB: diary
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U diary" --health-interval 5s --health-timeout 5s --health-retries 10
+      mail:
+        image: axllent/mailpit:v1.27
+        ports: ["1025:1025", "8025:8025"]
+    env:
+      DATABASE_URL: postgres://diary:diary@localhost:5432/diary
+      APP_ORIGIN: https://localhost:5173
+      RP_ID: localhost
+      RP_NAME: diary-log
+      ACTIVE_KEY_VERSION: "1"
+      SMTP_URL: smtp://localhost:1025
+      MAIL_FROM: diary-log <no-reply@localhost>
+      PORT: "3000"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: テスト用の鍵を生成する
+        run: |
+          echo "DATA_ENCRYPTION_KEYS=1:$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+          echo "HMAC_SECRET=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+      - run: npm ci
+      - name: 開発用の証明書を用意する
+        run: |
+          sudo apt-get update && sudo apt-get install -y libnss3-tools mkcert
+          mkcert -install
+          sh scripts/dev-certs.sh
+      - run: env | grep -E '^(DATABASE_URL|APP_ORIGIN|RP_ID|RP_NAME|DATA_ENCRYPTION_KEYS|ACTIVE_KEY_VERSION|HMAC_SECRET|SMTP_URL|MAIL_FROM|PORT)=' > .env
+      - run: npm run db:migrate
+      - run: npm run verify
+      - run: npx playwright install --with-deps
+      - run: npm run test:e2e
