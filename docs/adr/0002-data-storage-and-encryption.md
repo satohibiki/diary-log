@@ -22,3 +22,12 @@ PostgreSQL に画像を含むすべてのデータを保存する。本文、天
 
 暗号鍵の紛失は全データの喪失を意味するため、鍵のバックアップが必須である。日付は暗号化されない。
 画像の容量が増えた場合は、新しい ADR でオブジェクトストレージへの移行を検討する。
+
+## 実装結果(2026-11-07)
+
+- 決定どおり実装した。AAD は `diary.content:<id>`、`diary.image:<id>`、`user.email:<id>`、`user.avatar:<id>`、
+  `pending.email:<id>`、`otp.new_email:<id>` の形式とした。
+- 1行に複数の暗号文を持つ `users` では、どれかを書き換えるときに、同じ行の暗号文をすべて現在の鍵で
+  暗号化し直し、`key_version` をそろえる。
+- ID は data-model.md の UUID v7 ではなく、PostgreSQL の `gen_random_uuid()`(v4)を使った。並び順は
+  日付と ID で決まり、時刻順の ID を必要としないため。

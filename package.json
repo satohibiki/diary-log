@@ -1,0 +1,44 @@
+{
+  "name": "diary-log",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
+    "dev": "node scripts/dev.ts",
+    "db:migrate": "npm run db:migrate -w @diary/server",
+    "typecheck": "tsc -p tsconfig.json && tsc -p packages/shared && tsc -p apps/server && tsc -p apps/web",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "audit": "npm audit",
+    "secrets": "git ls-files -z | xargs -0 secretlint",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run audit && npm run secrets",
+    "verify:encryption": "node --env-file=.env scripts/verify-encryption.ts"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@eslint-react/eslint-plugin": "^5.28.8",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.1.0",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
+    "secretlint": "^13.1.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
+  },
+  "overrides": {
+    "minimatch": "^11.0.5",
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.12"
+    }
+  }
+}
