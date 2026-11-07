@@ -19,7 +19,7 @@ paths:
   /auth/registration/start:
     post:
       tags: [auth]
-      summary: ID とメールアドレスを登録し、確認コードを送信する
+      summary: ID とメールアドレスを登録し、ワンタイムパスワードを送信する
       security: []
       requestBody:
         required: true
@@ -33,7 +33,7 @@ paths:
                 email: { type: string, format: email, maxLength: 254 }
       responses:
         '202':
-          description: 確認コードを送信した
+          description: ワンタイムパスワードを送信した
           content:
             application/json:
               schema:
@@ -44,10 +44,27 @@ paths:
         '409': { $ref: '#/components/responses/Problem' }
         '422': { $ref: '#/components/responses/Problem' }
         '429': { $ref: '#/components/responses/Problem' }
+  /auth/registration/resend:
+    post:
+      tags: [auth]
+      summary: 登録用のワンタイムパスワードを再送する
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [registrationId]
+              properties:
+                registrationId: { type: string, format: uuid }
+      responses:
+        '202': { description: 受け付けた }
+        '429': { $ref: '#/components/responses/Problem' }
   /auth/registration/verify-email:
     post:
       tags: [auth]
-      summary: 確認コードを検証し、パスキーの作成オプションを返す
+      summary: ワンタイムパスワードを検証し、パスキーの作成オプションを返す
       security: []
       requestBody:
         required: true
@@ -110,7 +127,7 @@ paths:
   /auth/recovery/start:
     post:
       tags: [auth]
-      summary: 復旧コードを送信する(ID の有無によらず同じ応答)
+      summary: 復旧用のワンタイムパスワードを送信する(ID の有無によらず同じ応答)
       security: []
       requestBody: { $ref: '#/components/requestBodies/HandleOnly' }
       responses:
@@ -119,7 +136,7 @@ paths:
   /auth/recovery/verify:
     post:
       tags: [auth]
-      summary: 復旧コードを検証し、制限付きセッションを開始する
+      summary: ワンタイムパスワードを検証し、制限付きセッションを開始する
       security: []
       requestBody:
         required: true
@@ -221,7 +238,7 @@ paths:
   /me/email-change/start:
     post:
       tags: [account]
-      summary: 新しいメールアドレスへ確認コードを送信する(再認証が必要)
+      summary: 新しいメールアドレスへワンタイムパスワードを送信する(再認証が必要)
       requestBody:
         required: true
         content:
@@ -607,6 +624,7 @@ components:
   schemas:
     Handle:
       type: string
+      description: 画面と仕様書の「ID」
       pattern: '^[a-z0-9_]{3,20}$'
     Otp:
       type: string
