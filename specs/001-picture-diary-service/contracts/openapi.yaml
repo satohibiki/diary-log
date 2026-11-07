@@ -1,0 +1,680 @@
+openapi: 3.1.0
+info:
+  title: diary-log API
+  version: 1.0.0
+  description: |
+    同じ配信元の SPA から使う API。エラーは RFC 9457 の problem+json で返す。
+    権限のない対象と存在しない対象は、同じ 404 を返す。
+    日記を含む応答は `Cache-Control: no-store` とする。
+servers:
+  - url: /api/v1
+security:
+  - session: []
+tags:
+  - name: auth
+  - name: account
+  - name: diaries
+  - name: social
+paths:
+  /auth/registration/start:
+    post:
+      tags: [auth]
+      summary: ID とメールアドレスを登録し、確認コードを送信する
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [handle, email]
+              properties:
+                handle: { $ref: '#/components/schemas/Handle' }
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        '202':
+          description: 確認コードを送信した
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [registrationId]
+                properties:
+                  registrationId: { type: string, format: uuid }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/registration/verify-email:
+    post:
+      tags: [auth]
+      summary: 確認コードを検証し、パスキーの作成オプションを返す
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [registrationId, code]
+              properties:
+                registrationId: { type: string, format: uuid }
+                code: { $ref: '#/components/schemas/Otp' }
+      responses:
+        '200': { $ref: '#/components/responses/WebAuthnOptions' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/registration/finish:
+    post:
+      tags: [auth]
+      summary: パスキーを登録してアカウントを作成する
+      security: []
+      requestBody: { $ref: '#/components/requestBodies/RegistrationCredential' }
+      responses:
+        '201': { description: 作成した。セッション Cookie を設定する }
+        '401': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /auth/login/options:
+    post:
+      tags: [auth]
+      summary: ログインのオプションを返す(ID によらず同じ形式)
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/WebAuthnOptions' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/login/verify:
+    post:
+      tags: [auth]
+      summary: ID とパスキーでログインする
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [handle, challengeId, credential]
+              properties:
+                handle: { $ref: '#/components/schemas/Handle' }
+                challengeId: { type: string, format: uuid }
+                credential: { type: object }
+      responses:
+        '204': { description: ログインした }
+        '401': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: ログアウトする
+      responses:
+        '204': { description: セッションを削除した }
+  /auth/recovery/start:
+    post:
+      tags: [auth]
+      summary: 復旧コードを送信する(ID の有無によらず同じ応答)
+      security: []
+      requestBody: { $ref: '#/components/requestBodies/HandleOnly' }
+      responses:
+        '202': { description: 受け付けた }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/recovery/verify:
+    post:
+      tags: [auth]
+      summary: 復旧コードを検証し、制限付きセッションを開始する
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [handle, code]
+              properties:
+                handle: { $ref: '#/components/schemas/Handle' }
+                code: { $ref: '#/components/schemas/Otp' }
+      responses:
+        '200': { $ref: '#/components/responses/WebAuthnOptions' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/recovery/finish:
+    post:
+      tags: [auth]
+      summary: 新しいパスキーを登録し、他のセッションを失効させて通知する
+      requestBody: { $ref: '#/components/requestBodies/RegistrationCredential' }
+      responses:
+        '204': { description: 復旧した }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/step-up/options:
+    post:
+      tags: [auth]
+      summary: 再認証のオプションを返す
+      responses:
+        '200': { $ref: '#/components/responses/WebAuthnOptions' }
+  /auth/step-up/verify:
+    post:
+      tags: [auth]
+      summary: パスキーで再認証する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challengeId, credential]
+              properties:
+                challengeId: { type: string, format: uuid }
+                credential: { type: object }
+      responses:
+        '204': { description: 5分間有効 }
+        '401': { $ref: '#/components/responses/Problem' }
+  /me:
+    get:
+      tags: [account]
+      summary: 自分のアカウントを取得する
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [account]
+      summary: ニックネームまたは公開設定を変更する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                nickname: { type: string, minLength: 1, maxLength: 20 }
+                visibility: { $ref: '#/components/schemas/Visibility' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [account]
+      summary: 退会する(再認証が必要)
+      responses:
+        '204': { description: 全データを削除した }
+        '403': { $ref: '#/components/responses/Problem' }
+  /me/avatar:
+    put:
+      tags: [account]
+      summary: プロフィール画像を登録する
+      requestBody: { $ref: '#/components/requestBodies/ImageOnly' }
+      responses:
+        '204': { description: 登録した }
+        '413': { $ref: '#/components/responses/Problem' }
+        '415': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [account]
+      summary: プロフィール画像を削除する
+      responses:
+        '204': { description: 削除した }
+  /me/email-change/start:
+    post:
+      tags: [account]
+      summary: 新しいメールアドレスへ確認コードを送信する(再認証が必要)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+      responses:
+        '202': { description: 送信した }
+        '403': { $ref: '#/components/responses/Problem' }
+  /me/email-change/verify:
+    post:
+      tags: [account]
+      summary: メールアドレスの変更を確定し、変更前の宛先へ通知する
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { $ref: '#/components/schemas/Otp' }
+      responses:
+        '204': { description: 変更した }
+        '401': { $ref: '#/components/responses/Problem' }
+  /me/passkeys:
+    get:
+      tags: [account]
+      summary: 登録済みのパスキーを一覧する
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Passkey' }
+  /me/passkeys/options:
+    post:
+      tags: [account]
+      summary: パスキーの追加オプションを返す(再認証が必要)
+      responses:
+        '200': { $ref: '#/components/responses/WebAuthnOptions' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /me/passkeys/finish:
+    post:
+      tags: [account]
+      summary: パスキーを追加し、登録済みのメールアドレスへ通知する
+      requestBody: { $ref: '#/components/requestBodies/RegistrationCredential' }
+      responses:
+        '201': { description: 追加した }
+        '401': { $ref: '#/components/responses/Problem' }
+  /me/passkeys/{id}:
+    delete:
+      tags: [account]
+      summary: パスキーを削除する(最後の1件は不可)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: 削除した }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /me/export:
+    get:
+      tags: [account]
+      summary: 全絵日記を ZIP でエクスポートする
+      responses:
+        '200':
+          description: manifest.json と画像を含む ZIP
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+  /me/diaries:
+    get:
+      tags: [diaries]
+      summary: 指定した月の絵日記がある日付を返す
+      parameters:
+        - name: month
+          in: query
+          required: true
+          schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [dates]
+                properties:
+                  dates:
+                    type: array
+                    items: { type: string, format: date }
+    post:
+      tags: [diaries]
+      summary: 絵日記を作成する
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/DiaryInput'
+                - type: object
+                  required: [date, body, weather, image]
+      responses:
+        '201':
+          description: 作成した
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Diary' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '413': { $ref: '#/components/responses/Problem' }
+        '415': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /me/diaries/{date}:
+    parameters:
+      - $ref: '#/components/parameters/Date'
+    put:
+      tags: [diaries]
+      summary: 絵日記を編集する(画像は変更時のみ指定)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/DiaryInput'
+                - type: object
+                  required: [body, weather]
+      responses:
+        '200':
+          description: 更新した
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Diary' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [diaries]
+      summary: 絵日記と画像を削除する
+      responses:
+        '204': { description: 削除した }
+        '404': { $ref: '#/components/responses/Problem' }
+  /feed:
+    get:
+      tags: [social]
+      summary: フォロー中のユーザーの閲覧可能な絵日記を新しい日付順に返す
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200': { $ref: '#/components/responses/DiaryPage' }
+  /users/{handle}:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+    get:
+      tags: [social]
+      summary: ID の完全一致でユーザーを取得する
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserSummary' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /users/{handle}/avatar:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+    get:
+      tags: [social]
+      summary: プロフィール画像を取得する
+      responses:
+        '200': { $ref: '#/components/responses/Image' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /users/{handle}/diaries:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+    get:
+      tags: [social]
+      summary: 閲覧可能なユーザーの絵日記を一覧する
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+      responses:
+        '200': { $ref: '#/components/responses/DiaryPage' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /users/{handle}/diaries/{date}:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+      - $ref: '#/components/parameters/Date'
+    get:
+      tags: [diaries]
+      summary: 絵日記を取得する(本人を含め同じ権限判定)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Diary' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /users/{handle}/diaries/{date}/image:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+      - $ref: '#/components/parameters/Date'
+    get:
+      tags: [diaries]
+      summary: 絵日記の画像を取得する
+      responses:
+        '200': { $ref: '#/components/responses/Image' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /users/{handle}/follow:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+    post:
+      tags: [social]
+      summary: フォローを申請する
+      responses:
+        '202': { description: 承認待ち }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [social]
+      summary: 申請を取り消す、またはフォローを解除する
+      responses:
+        '204': { description: 解除した }
+  /me/following:
+    get:
+      tags: [social]
+      summary: フォロー中と申請中のユーザーを一覧する
+      responses:
+        '200': { $ref: '#/components/responses/FollowList' }
+  /me/followers:
+    get:
+      tags: [social]
+      summary: フォロワーと承認待ちの申請を一覧する
+      responses:
+        '200': { $ref: '#/components/responses/FollowList' }
+  /me/followers/{handle}:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+    delete:
+      tags: [social]
+      summary: フォロワーを削除する、または申請を拒否する
+      responses:
+        '204': { description: 削除した }
+  /me/followers/{handle}/approve:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+    post:
+      tags: [social]
+      summary: フォローの申請を承認する
+      responses:
+        '204': { description: 承認した }
+        '404': { $ref: '#/components/responses/Problem' }
+  /me/blocks:
+    get:
+      tags: [social]
+      summary: ブロック中のユーザーを一覧する
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/UserSummary' }
+  /me/blocks/{handle}:
+    parameters:
+      - $ref: '#/components/parameters/Handle'
+    put:
+      tags: [social]
+      summary: ユーザーをブロックし、両方向のフォローを削除する
+      responses:
+        '204': { description: ブロックした }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [social]
+      summary: ブロックを解除する
+      responses:
+        '204': { description: 解除した }
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-session
+  parameters:
+    Handle:
+      name: handle
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Handle' }
+    Date:
+      name: date
+      in: path
+      required: true
+      schema: { type: string, format: date }
+  requestBodies:
+    HandleOnly:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [handle]
+            properties:
+              handle: { $ref: '#/components/schemas/Handle' }
+    RegistrationCredential:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [challengeId, credential]
+            properties:
+              challengeId: { type: string, format: uuid }
+              credential: { type: object }
+              name: { type: string, maxLength: 50 }
+    ImageOnly:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [image]
+            properties:
+              image: { type: string, format: binary }
+  responses:
+    Problem:
+      description: エラー
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    WebAuthnOptions:
+      description: WebAuthn のオプション
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [challengeId, options]
+            properties:
+              challengeId: { type: string, format: uuid }
+              options: { type: object }
+    Image:
+      description: WebP 画像
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Content-Type-Options: { schema: { type: string, const: nosniff } }
+      content:
+        image/webp:
+          schema: { type: string, format: binary }
+    DiaryPage:
+      description: OK
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [items, nextCursor]
+            properties:
+              items:
+                type: array
+                items: { $ref: '#/components/schemas/Diary' }
+              nextCursor: { type: [string, 'null'] }
+    FollowList:
+      description: OK
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [approved, pending]
+            properties:
+              approved:
+                type: array
+                items: { $ref: '#/components/schemas/UserSummary' }
+              pending:
+                type: array
+                items: { $ref: '#/components/schemas/UserSummary' }
+  schemas:
+    Handle:
+      type: string
+      pattern: '^[a-z0-9_]{3,20}$'
+    Otp:
+      type: string
+      pattern: '^\d{8}$'
+    Visibility:
+      type: string
+      enum: [private, public]
+    Weather:
+      type: string
+      enum: [sunny, cloudy, rainy, snowy]
+    Me:
+      type: object
+      required: [handle, nickname, email, visibility, hasAvatar]
+      properties:
+        handle: { $ref: '#/components/schemas/Handle' }
+        nickname: { type: string }
+        email: { type: string, format: email }
+        visibility: { $ref: '#/components/schemas/Visibility' }
+        hasAvatar: { type: boolean }
+    UserSummary:
+      type: object
+      description: メールアドレスと公開設定は含めない
+      required: [handle, nickname, hasAvatar]
+      properties:
+        handle: { $ref: '#/components/schemas/Handle' }
+        nickname: { type: string }
+        hasAvatar: { type: boolean }
+    Passkey:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+    DiaryInput:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        body: { type: string, description: 1〜400文字(書記素単位) }
+        weather: { $ref: '#/components/schemas/Weather' }
+        image:
+          type: string
+          format: binary
+          description: JPEG、PNG、WebP。10MB 以下
+    Diary:
+      type: object
+      required: [date, body, weather, imageUrl, author]
+      properties:
+        date: { type: string, format: date }
+        body: { type: string }
+        weather: { $ref: '#/components/schemas/Weather' }
+        imageUrl: { type: string }
+        author: { $ref: '#/components/schemas/UserSummary' }
+    Problem:
+      type: object
+      description: 日記の内容や機密情報を含めない
+      required: [type, title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, code]
+            properties:
+              field: { type: string }
+              code: { type: string }
