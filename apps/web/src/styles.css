@@ -124,6 +124,11 @@ select {
   color: var(--fg);
 }
 
+/* ファイル選択欄の幅はブラウザとフォントで決まり、幅360pxでははみ出すことがあるため、親の幅までに制限する */
+input[type='file'] {
+  max-width: 100%;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
