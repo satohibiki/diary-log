@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DiaryEditor } from '../src/features/diary/DiaryEditor.tsx';
 import { DiaryView } from '../src/features/diary/DiaryView.tsx';
-import { todayLocal } from '../src/lib/dates.ts';
+import { formatDiaryDay, todayLocal } from '../src/lib/dates.ts';
 import { clearAllDrafts, loadDraft, saveDraft } from '../src/lib/draft-store.ts';
 import { me, mockFetch } from './helpers.ts';
 
@@ -53,9 +53,53 @@ describe('DiaryEditor', () => {
     expect(input.getAttribute('max')).toBe(todayLocal());
   });
 
-  it('writes the text vertically', () => {
+  // 002 FR-006 で縦書き(001 FR-010)を横書きの罫線に置き換えたため、縦書きの確認はページ構成の確認に置き換えた
+  it('lays out the editor as a diary page: picture, date and weather, then ruled text', () => {
+    const { container } = renderEditor();
+    const sheet = container.querySelector('.diary-page__sheet');
+    expect(sheet).not.toBeNull();
+    expect(container.querySelector('.diary-page__picture')?.contains(screen.getByLabelText('絵(画像)'))).toBe(true);
+    const day = container.querySelector('.diary-page__day');
+    expect(day?.contains(screen.getByLabelText('日付'))).toBe(true);
+    expect(day?.textContent).toContain(formatDiaryDay(todayLocal()));
+    const weather = container.querySelector('.diary-page__weather');
+    const group = screen.getByRole('group', { name: '天気' });
+    expect(weather?.contains(group)).toBe(true);
+    expect(['晴れ', 'くもり', '雨', '雪'].map((w) => group.contains(screen.getByLabelText(w)))).toEqual([true, true, true, true]);
+    const body = screen.getByLabelText('文章');
+    expect(container.querySelector('.diary-page__body')?.contains(body)).toBe(true);
+    expect(body.classList.contains('ruled-text')).toBe(true);
+  });
+
+  it('shows the year outside the page and only month, day, and weekday inside', () => {
+    const { container } = renderEditor();
+    const year = `${todayLocal().slice(0, 4)}年`;
+    expect(container.querySelector('.diary-page__sheet')?.textContent).not.toContain(year);
+    expect(container.querySelector('.diary-page')?.textContent).toContain(year);
+  });
+
+  it('updates the date field text when the date changes', () => {
+    const { container } = renderEditor();
+    fireEvent.change(screen.getByLabelText('日付'), { target: { value: '2026-11-03' } });
+    expect(container.querySelector('.diary-page__day')?.textContent).toContain('11月 3日(火)');
+  });
+
+  it('lets only one weather be chosen', async () => {
     renderEditor();
-    expect(screen.getByLabelText('文章').classList.contains('vertical-text')).toBe(true);
+    await userEvent.click(screen.getByLabelText('晴れ'));
+    await userEvent.click(screen.getByLabelText('雨'));
+    expect(screen.getByLabelText<HTMLInputElement>('雨').checked).toBe(true);
+    expect(screen.getByLabelText<HTMLInputElement>('晴れ').checked).toBe(false);
+  });
+
+  it('rejects a future date when saving', async () => {
+    const calls = mockFetch({});
+    renderEditor();
+    await fillAll();
+    fireEvent.change(screen.getByLabelText('日付'), { target: { value: '2999-01-01' } });
+    await userEvent.click(screen.getByRole('button', { name: '保存する' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('未来の日付は選べません');
+    expect(calls).toHaveLength(0);
   });
 
   it('shows the remaining characters', async () => {
@@ -68,6 +112,10 @@ describe('DiaryEditor', () => {
   it('lists missing items instead of saving', async () => {
     const calls = mockFetch({});
     renderEditor();
+    // 下書きの読み込みが終わるまで保存ボタンは押せない
+    await vi.waitFor(() => {
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: '保存する' }).disabled).toBe(false);
+    });
     await userEvent.click(screen.getByRole('button', { name: '保存する' }));
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('絵');
