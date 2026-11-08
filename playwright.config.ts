@@ -21,11 +21,21 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], viewport: { width: 360, height: 740 }, hasTouch: true },
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'https://localhost:5173',
-    ignoreHTTPSErrors: true,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: 'npm run dev',
+      url: 'https://localhost:5173',
+      ignoreHTTPSErrors: true,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      // 性能の測定(SC-004)用に、本番用にビルドした画面を配信する。API は開発用サーバーへ転送する
+      command: 'npm run build -w @diary/web && npm exec -w @diary/web -- vite preview --port 4173 --strictPort',
+      url: 'https://localhost:4173',
+      ignoreHTTPSErrors: true,
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    },
+  ],
 });

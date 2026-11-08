@@ -1,8 +1,12 @@
 # diary-log
 
-縦書きの絵日記を書き、承認したフォロワーだけに公開できる Web サービスです。パスワードは使わず、ID とパスキーで
-ログインします。仕様と設計は [specs/001-picture-diary-service](specs/001-picture-diary-service/) を、開発の
-原則は [憲章](.specify/memory/constitution.md) を参照してください。
+紙の絵日記帳のようなページに絵日記を書き、承認したフォロワーだけに公開できる Web サービスです。パスワードは使わず、
+ID とパスキーでログインします。仕様と設計は [specs/001-picture-diary-service](specs/001-picture-diary-service/) と
+[specs/002-handwritten-diary-ui](specs/002-handwritten-diary-ui/) を、開発の原則は [憲章](.specify/memory/constitution.md)
+を参照してください。
+
+手書き風の書体(Klee One、SIL Open Font License 1.1)は、外部のサービスから読み込まず、このサービスから配信します
+([ADR-0006](docs/adr/0006-handwriting-font.md))。
 
 ## 構成
 
@@ -51,7 +55,7 @@ sh scripts/dev-certs.sh "$(scutil --get LocalHostName | tr A-Z a-z).local"  # �
 
 ```bash
 npm run verify      # 型検査、lint、テスト、脆弱性検査、秘密情報の検査
-npm run test:e2e    # E2E(開発サーバーを自動で起動する)
+npm run test:e2e    # E2E(開発サーバーと、性能の測定用に本番用にビルドした画面 https://localhost:4173 を自動で起動する)
 npm run verify:encryption  # DB に平文の本文やメールアドレスがないことを確認する
 ```
 
