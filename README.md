@@ -31,6 +31,22 @@ npm run dev
 - アプリ: <https://localhost:5173>
 - 開発用メール(ワンタイムパスワードの確認): <http://localhost:8025>
 
+### 同じネットワークの別の端末から試す
+
+IP アドレスではパスキーを使えないため、Mac のホスト名(`<LocalHostName>.local`)で開く。
+
+```bash
+sh scripts/dev-certs.sh "$(scutil --get LocalHostName | tr A-Z a-z).local"  # ホスト名を含む証明書を作り直す
+```
+
+`.env` の `APP_ORIGIN` を `https://<ホスト名>.local:5173`、`RP_ID` を `<ホスト名>.local` に変える(小文字で書く)。
+`APP_ORIGIN` が localhost 以外のときだけ、開発サーバーは同じネットワークの端末からの接続を受け付ける。
+
+- 端末には mkcert の認証局(`mkcert -CAROOT` のフォルダーの `rootCA.pem`)を入れて信頼させる。
+- `RP_ID` ごとにパスキーは別になる。localhost で作ったパスキーではログインできない。
+- E2E は `https://localhost:5173` で動くため、実行する前に `.env` を localhost に戻す。
+- 試し終えたら `.env` を localhost に戻し、同じネットワークからの接続を受け付けない状態にする。
+
 ## テストと品質ゲート
 
 ```bash
