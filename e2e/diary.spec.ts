@@ -48,6 +48,53 @@ test('restores the draft after the tab is closed', async ({ page, context }) => 
   await expect(again.getByLabel('文章')).toHaveValue('とちゅうまで かいた');
 });
 
+// 003: 以前に開いた日の日付が「書く」に残らない
+test('opens today on 書く even after the editor was opened on an earlier day', async ({ page, context }) => {
+  await page.clock.setFixedTime(new Date(2026, 10, 8, 9, 0));
+  await page.goto('/diaries/new');
+  await expect(page.locator('.diary-page__day')).toContainText('11月 8日(日)');
+  await page.waitForTimeout(800);
+  await page.close();
+
+  const later = await context.newPage();
+  await later.clock.setFixedTime(new Date(2026, 10, 22, 9, 0));
+  await later.goto('/diaries/new');
+  await expect(later.locator('.diary-page__day')).toContainText('11月 22日(日)');
+});
+
+test('does not carry a draft of an earlier day into today', async ({ page, context }) => {
+  await page.clock.setFixedTime(new Date(2026, 10, 8, 9, 0));
+  await page.goto('/diaries/new');
+  await page.getByLabel('文章').fill('8かのぶん');
+  await page.waitForTimeout(800);
+  await page.close();
+
+  const later = await context.newPage();
+  await later.clock.setFixedTime(new Date(2026, 10, 22, 9, 0));
+  await later.goto('/diaries/new');
+  await expect(later.locator('.diary-page__day')).toContainText('11月 22日(日)');
+  await expect(later.getByLabel('文章')).toHaveValue('');
+});
+
+test('guides to a draft of an earlier day from 書く', async ({ page, context }) => {
+  await page.clock.setFixedTime(new Date(2026, 10, 8, 9, 0));
+  await page.goto('/diaries/new');
+  await page.getByLabel('文章').fill('8かのぶん');
+  await page.waitForTimeout(800);
+  await page.close();
+
+  const later = await context.newPage();
+  await later.setViewportSize({ width: 360, height: 740 });
+  await later.clock.setFixedTime(new Date(2026, 10, 22, 9, 0));
+  await later.goto('/diaries/new');
+  const notice = later.getByRole('navigation', { name: '書きかけの絵日記' });
+  await expect(notice).toContainText('書きかけの絵日記があります');
+  expect(await later.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+  await notice.getByRole('link', { name: '2026年11月8日(日)' }).click();
+  await expect(later.locator('.diary-page__day')).toContainText('11月 8日(日)');
+  await expect(later.getByLabel('文章')).toHaveValue('8かのぶん');
+});
+
 test('guides to editing when a diary already exists for the date', async ({ page }) => {
   for (let i = 0; i < 2; i += 1) {
     await page.goto('/diaries/new');

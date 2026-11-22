@@ -138,6 +138,32 @@ input[type='file'] {
   white-space: nowrap;
 }
 
+/* ---------- 書きかけの絵日記の案内(003-fix-write-today-date) ---------- */
+
+/* ページ(カード)の外、見出しの下に置く */
+.draft-notice {
+  max-width: 36rem;
+  margin: 0 auto 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--paper);
+}
+
+.draft-notice p {
+  margin: 0 0 0.25rem;
+  color: var(--muted);
+}
+
+.draft-notice ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* ---------- 絵日記のページ(002-handwritten-diary-ui) ---------- */
 
 /* ページの配色はダークモードでも変えない(紙の色を保つ。FR-014) */

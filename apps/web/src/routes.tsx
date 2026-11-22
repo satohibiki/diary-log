@@ -4,7 +4,7 @@ import { PrivacyPage } from './features/legal/PrivacyPage.tsx';
 import { RecoveryPage } from './features/auth/RecoveryPage.tsx';
 import { SignupPage } from './features/auth/SignupPage.tsx';
 import { SecuritySettings } from './features/auth/SecuritySettings.tsx';
-import { DiaryEditor } from './features/diary/DiaryEditor.tsx';
+import { DiaryEditor, NewDiaryEditor } from './features/diary/DiaryEditor.tsx';
 import { DiaryView } from './features/diary/DiaryView.tsx';
 import { CalendarPage } from './features/calendar/CalendarPage.tsx';
 import { ProfilePage } from './features/profile/ProfilePage.tsx';
@@ -32,7 +32,7 @@ export const routes: RouteDef[] = [
   { path: '/connections', element: <ConnectionsPage /> },
   { path: '/users/:handle', element: <UserPage /> },
   { path: '/settings/security', element: <SecuritySettings /> },
-  { path: '/diaries/new', element: <DiaryEditor /> },
+  { path: '/diaries/new', element: <NewDiaryEditor /> },
   { path: '/diaries/:date/edit', element: <DiaryEditor /> },
   { path: '/users/:handle/diaries/:date', element: <DiaryView /> },
 ];
