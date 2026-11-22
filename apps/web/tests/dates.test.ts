@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDiaryDay, formatJapaneseDate } from '../src/lib/dates.ts';
+import { formatDiaryDay, formatJapaneseDate, initialDiaryDate } from '../src/lib/dates.ts';
 
 describe('formatDiaryDay', () => {
   it('formats month, day, and weekday without the year or zero padding', () => {
@@ -15,5 +15,28 @@ describe('formatDiaryDay', () => {
 describe('formatJapaneseDate', () => {
   it('keeps the full date with the year', () => {
     expect(formatJapaneseDate('2026-11-07')).toBe('2026年11月7日(土)');
+  });
+});
+
+describe('initialDiaryDate', () => {
+  const today = '2026-11-22';
+
+  it('uses today without a date in the URL', () => {
+    expect(initialDiaryDate(null, today)).toBe(today);
+  });
+
+  it('uses the given date when it is today or earlier', () => {
+    expect(initialDiaryDate('2026-11-15', today)).toBe('2026-11-15');
+    expect(initialDiaryDate('2026-11-22', today)).toBe('2026-11-22');
+  });
+
+  it('uses today for a future date', () => {
+    expect(initialDiaryDate('2026-11-23', today)).toBe(today);
+  });
+
+  it('uses today for an invalid date', () => {
+    for (const value of ['2026-1-5', 'abc', '', '2026-02-30']) {
+      expect(initialDiaryDate(value, today)).toBe(today);
+    }
   });
 });

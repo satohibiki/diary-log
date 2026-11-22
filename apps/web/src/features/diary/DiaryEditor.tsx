@@ -1,17 +1,33 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { BODY_MAX, graphemeLength, IMAGE_MAX_BYTES, WEATHERS, type Diary, type Weather } from '@diary/shared';
 import { DiaryPage } from '../../components/DiaryPage.tsx';
 import { ErrorMessage } from '../../components/ErrorMessage.tsx';
 import { useMe } from '../../components/RequireAuth.tsx';
 import { api, ApiError } from '../../lib/api-client.ts';
-import { formatDiaryDay, todayLocal } from '../../lib/dates.ts';
-import { clearDraft, loadDraft, saveDraft } from '../../lib/draft-store.ts';
+import { formatDiaryDay, formatJapaneseDate, initialDiaryDate, todayLocal } from '../../lib/dates.ts';
+import {
+  clearDraft,
+  clearNewDraft,
+  isEmptyDraft,
+  listNewDraftDates,
+  loadDraft,
+  loadNewDraft,
+  migrateLegacyNewDraft,
+  saveDraft,
+  saveNewDraft,
+} from '../../lib/draft-store.ts';
 import { UserFacingError } from '../../lib/errors.ts';
 import { ruledHeight } from '../../lib/ruled-lines.ts';
 import { WEATHER_LABELS } from '../../lib/weather.ts';
 
 const DRAFT_DELAY_MS = 500;
+
+/** 新しく書く記入画面。URL が変わるたびに作り直し、URL の日付で開き直す(003 research §5) */
+export function NewDiaryEditor() {
+  const location = useLocation();
+  return <DiaryEditor key={location.key} />;
+}
 
 export function DiaryEditor() {
   const me = useMe();
@@ -22,7 +38,9 @@ export function DiaryEditor() {
   const slot = params.date ?? 'new';
   const today = todayLocal();
 
-  const [date, setDate] = useState(params.date ?? search.get('date') ?? today);
+  // 開く日付は URL だけで決め、書きかけの日付で置き換えない(003 FR-001、FR-002)
+  const [initialDate] = useState(() => params.date ?? initialDiaryDate(search.get('date'), today));
+  const [date, setDate] = useState(initialDate);
   const [body, setBody] = useState('');
   const [weather, setWeather] = useState<Weather | ''>('');
   const [image, setImage] = useState<Blob | null>(null);
@@ -30,12 +48,20 @@ export function DiaryEditor() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
+  // 新規の書きかけがある日付(003 FR-006)。表示では画面の日付を除く
+  const [draftDates, setDraftDates] = useState<string[]>([]);
+  const otherDraftDates = draftDates.filter((d) => d !== date);
 
-  // 下書き、または編集する絵日記を読み込む
+  // 下書き、または編集する絵日記を読み込む。新規では開いた日付の書きかけだけを戻す(003 FR-003)
   useEffect(() => {
     const state = { active: true };
     (async () => {
-      const draft = await loadDraft(me.handle, slot);
+      if (!editing) await migrateLegacyNewDraft(me.handle);
+      const draft = editing ? await loadDraft(me.handle, slot) : await loadNewDraft(me.handle, initialDate);
+      if (!editing) {
+        const dates = await listNewDraftDates(me.handle);
+        if (state.active) setDraftDates(dates);
+      }
       if (editing) {
         const diary = await api<Diary>(`/users/${me.handle}/diaries/${slot}`);
         if (!state.active) return;
@@ -44,7 +70,6 @@ export function DiaryEditor() {
         setWeather(diary.weather);
       }
       if (draft && state.active) {
-        setDate(editing ? slot : draft.date);
         setBody(draft.body);
         setWeather(draft.weather as Weather | '');
         setImage(draft.image);
@@ -59,20 +84,26 @@ export function DiaryEditor() {
     return () => {
       state.active = false;
     };
-  }, [me.handle, slot, editing]);
+  }, [me.handle, slot, editing, initialDate]);
 
   // 入力の500ms後に下書きを保存する
   useEffect(() => {
     if (!loaded) return;
     const timer = setTimeout(() => {
-      saveDraft(me.handle, slot, { date, body, weather, image }).catch((e: unknown) => {
+      const draft = { date, body, weather, image };
+      (editing
+        ? saveDraft(me.handle, slot, draft)
+        : saveNewDraft(me.handle, draft).then(async () => {
+            setDraftDates(await listNewDraftDates(me.handle));
+          })
+      ).catch((e: unknown) => {
         setError(e);
       });
     }, DRAFT_DELAY_MS);
     return () => {
       clearTimeout(timer);
     };
-  }, [loaded, me.handle, slot, date, body, weather, image]);
+  }, [loaded, editing, me.handle, slot, date, body, weather, image]);
 
   const preview = useMemo(() => (image ? URL.createObjectURL(image) : null), [image]);
   useEffect(
@@ -105,6 +136,19 @@ export function DiaryEditor() {
     };
   }, [body, loaded]);
 
+  // 日付を変えたら、書きかけを変更後の日付へ移す。変更後の日付の書きかけを置き換える前に確かめる(003 FR-005)
+  const changeDate = async (next: string) => {
+    if (editing) return;
+    const existing = await loadNewDraft(me.handle, next);
+    if (existing && !isEmptyDraft(existing)) {
+      if (!window.confirm(`${formatJapaneseDate(next)}の書きかけを、いま書いている内容で置き換えますか?`)) return;
+    }
+    const previous = date;
+    setDate(next);
+    await clearNewDraft(me.handle, previous);
+    setDraftDates(await listNewDraftDates(me.handle));
+  };
+
   const submit = async () => {
     const missing: string[] = [];
     if (!image && !editing) missing.push('絵(画像)');
@@ -133,7 +177,7 @@ export function DiaryEditor() {
       await (editing
         ? api(`/me/diaries/${slot}`, { method: 'PUT', form })
         : api('/me/diaries', { method: 'POST', form }));
-      await clearDraft(me.handle, slot);
+      await (editing ? clearDraft(me.handle, slot) : clearNewDraft(me.handle, date));
       await navigate(`/users/${me.handle}/diaries/${date}`, { replace: true });
     } catch (e) {
       setError(e);
@@ -154,6 +198,18 @@ export function DiaryEditor() {
       }}
     >
       <h1>{editing ? '絵日記を編集' : '絵日記を書く'}</h1>
+      {!editing && otherDraftDates.length > 0 && (
+        <nav aria-label="書きかけの絵日記" className="draft-notice">
+          <p>書きかけの絵日記があります</p>
+          <ul>
+            {otherDraftDates.map((d) => (
+              <li key={d}>
+                <Link to={`/diaries/new?date=${d}`}>{formatJapaneseDate(d)}</Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
       <DiaryPage
         heading={<p className="diary-page__year">{date.slice(0, 4)}年</p>}
         picture={
@@ -201,7 +257,9 @@ export function DiaryEditor() {
                 e.currentTarget.showPicker();
               }}
               onChange={(e) => {
-                setDate(e.target.value);
+                changeDate(e.target.value).catch((err: unknown) => {
+                  setError(err);
+                });
               }}
             />
           </>
