@@ -19,6 +19,15 @@ describe('PrivacyPage', () => {
     expect(text).toContain('パスワード');
   });
 
+  it('states that the handwriting font is served by this service, not loaded from outside', () => {
+    render(
+      <MemoryRouter>
+        <PrivacyPage />
+      </MemoryRouter>,
+    );
+    expect(document.body.textContent).toMatch(/書体.*このサービス/);
+  });
+
   it('can be opened without signing in, so it is readable before registration', () => {
     expect(publicRoutes.map((r) => r.path)).toContain('/privacy');
   });

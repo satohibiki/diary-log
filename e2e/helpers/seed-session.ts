@@ -3,8 +3,9 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { BrowserContext } from '@playwright/test';
 import pg from 'pg';
+import sharp from 'sharp';
 import { loadConfig } from '../../apps/server/src/platform/config.ts';
-import { createCipherBox } from '../../apps/server/src/platform/crypto.ts';
+import { aad, createCipherBox } from '../../apps/server/src/platform/crypto.ts';
 
 process.loadEnvFile('.env');
 const config = loadConfig(process.env);
@@ -64,4 +65,22 @@ export async function signInAs(context: BrowserContext, user: SeededUser): Promi
 // 認証の E2E の前に開発用 DB の記録を消去する
 export async function resetRateLimits(): Promise<void> {
   await withClient((client) => client.query('delete from rate_limits'));
+}
+
+/** 絵日記を DB に直接作る。001 の縦書きの画面で作った既存の絵日記の代わりに使う(保存形式は同じ) */
+export async function seedDiary(
+  user: SeededUser,
+  date: string,
+  content: { body: string; weather: 'sunny' | 'cloudy' | 'rainy' | 'snowy' },
+): Promise<void> {
+  const id = randomUUID();
+  const image = await sharp({ create: { width: 400, height: 300, channels: 3, background: '#c9a27e' } }).webp().toBuffer();
+  const sealedContent = cipher.encrypt(Buffer.from(JSON.stringify(content)), aad('diary.content', id));
+  const sealedImage = cipher.encrypt(image, aad('diary.image', id));
+  await withClient((client) =>
+    client.query(
+      'insert into diaries (id, user_id, diary_date, content_enc, image_enc, key_version) values ($1, $2, $3, $4, $5, $6)',
+      [id, user.id, date, sealedContent.ciphertext, sealedImage.ciphertext, sealedContent.keyVersion],
+    ),
+  );
 }

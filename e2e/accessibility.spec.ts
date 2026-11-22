@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
-import { seedUser, signInAs } from './helpers/seed-session.ts';
+import { seedDiary, seedUser, signInAs } from './helpers/seed-session.ts';
 import { uniqueHandle } from './helpers/auth.ts';
 
 const PUBLIC_PAGES = ['/login', '/signup', '/recover', '/privacy'];
@@ -18,6 +18,15 @@ for (const path of PUBLIC_PAGES) {
     await expectNoSeriousViolations(page);
   });
 }
+
+test('the diary page has no serious accessibility violations, including color contrast', async ({ page, context }) => {
+  const owner = await seedUser(uniqueHandle('a11yv'));
+  await seedDiary(owner, '2026-10-03', { body: 'こんとらすとを たしかめる にっき', weather: 'rainy' });
+  await signInAs(context, owner);
+  await page.goto(`/users/${owner.handle}/diaries/2026-10-03`);
+  await expect(page.getByLabel('文章')).toBeVisible();
+  await expectNoSeriousViolations(page);
+});
 
 test.describe('signed-in pages', () => {
   test.beforeEach(async ({ context }) => {

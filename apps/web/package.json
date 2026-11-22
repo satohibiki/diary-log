@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@diary/shared": "^0.0.0",
+    "@fontsource/klee-one": "5.3.1",
     "@simplewebauthn/browser": "^14.0.0",
     "fflate": "^0.8.3",
     "react": "^19.3.1",

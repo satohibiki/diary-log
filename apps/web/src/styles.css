@@ -138,28 +138,202 @@ input[type='file'] {
   white-space: nowrap;
 }
 
-/* ---------- 絵日記 ---------- */
+/* ---------- 絵日記のページ(002-handwritten-diary-ui) ---------- */
 
-.diary-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 2rem;
-  align-items: end;
+/* ページの配色はダークモードでも変えない(紙の色を保つ。FR-014) */
+.diary-page {
+  --page-paper: #e6e6e6;
+  --page-ink: #222;
+  --page-line: #222;
+  --page-rule: #666;
+  /* 行の高さと罫線の間隔は同じ値(research.md §3) */
+  --rule-gap: 2rem;
+  /* 文字は行の中で上下中央に置かれるため、罫線だけを文字の下端まで上げる */
+  --rule-offset: 0.3rem;
+
+  max-width: 36rem;
+  margin: 1rem auto;
+  padding: 1rem;
+  border-radius: 1.5rem;
+  /* 手書き風の書体。読み込み中と、書体にない文字は端末の日本語の書体で表示する(ADR-0006) */
+  font-family: 'Klee One', 'Hiragino Maru Gothic ProN', 'Yu Gothic', 'Noto Sans CJK JP', sans-serif;
+  background: var(--page-paper);
+  color: var(--page-ink);
 }
 
-fieldset.weather {
+.diary-page__sheet {
+  border: 2px solid var(--page-line);
+  background: var(--page-paper);
+}
+
+.diary-page__picture {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-bottom: 1px solid var(--page-line);
+}
+
+.diary-page__picture img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.diary-page__placeholder {
+  margin: 0;
+  color: #555;
+}
+
+.diary-page__picture-input {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 0.25rem 0.5rem;
+  background: rgb(230 230 230 / 0.9);
+  color: var(--page-ink);
+}
+
+.diary-page__picture-input label {
+  display: inline;
+  margin: 0 0.5rem 0 0;
+}
+
+.diary-page__meta {
+  display: grid;
+  /* 日付は1行に保ち、残りの幅を天気欄に使う */
+  grid-template-columns: auto minmax(0, 1fr);
+  border-bottom: 1px solid var(--page-line);
+}
+
+.diary-page__day,
+.diary-page__weather {
+  display: flex;
+  align-items: center;
+  min-height: 3.5rem;
+  padding: 0.25rem 0.75rem;
+}
+
+.diary-page__day {
+  position: relative;
+  border-right: 1px solid var(--page-line);
+  font-size: 1.125rem;
+  white-space: nowrap;
+}
+
+/* 日付の入力欄は透明にして日付欄に重ね、整形した日付を見せる。フォーカスは欄の枠で示す */
+.diary-page__day input[type='date'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.diary-page__day:focus-within {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.diary-page__weather fieldset {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin: 0.75rem 0 0;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  margin: 0;
   padding: 0;
   border: 0;
 }
 
-fieldset.weather legend {
-  font-weight: 600;
-  margin-bottom: 0.25rem;
+.diary-page__weather legend {
+  float: left;
+  margin-right: 0.5rem;
+  padding: 0;
 }
+
+.diary-page__weather label {
+  display: inline-flex;
+  gap: 0.2rem;
+  align-items: center;
+  margin: 0;
+  font-weight: 400;
+}
+
+.diary-page__body {
+  padding: 0 0.75rem 0.5rem;
+}
+
+/* 横書きの罫線の文章欄。最小8行で、罫線は点線(FR-006、FR-007、FR-009) */
+.ruled-text {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: calc(var(--rule-gap) * 8);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  resize: none;
+  writing-mode: horizontal-tb;
+  font-size: 1.125rem;
+  line-height: var(--rule-gap);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--page-ink);
+  background-color: var(--page-paper);
+  background-image:
+    linear-gradient(to right, var(--page-paper) 50%, transparent 50%),
+    linear-gradient(to bottom, transparent calc(var(--rule-gap) - 1px), var(--page-rule) calc(var(--rule-gap) - 1px));
+  background-size:
+    6px 100%,
+    100% var(--rule-gap);
+  background-position:
+    0 0,
+    0 calc(-1 * var(--rule-offset));
+  background-origin: content-box;
+}
+
+.ruled-text:focus-visible {
+  outline-offset: 4px;
+}
+
+.diary-page__heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  align-items: baseline;
+  margin-bottom: 0.5rem;
+}
+
+.diary-page__heading h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.diary-page__heading p {
+  margin: 0;
+}
+
+.diary-page__weather-text {
+  margin: 0;
+}
+
+.diary-page__label {
+  margin-right: 0.5rem;
+}
+
+.diary-page__year {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* ---------- 絵日記の操作とラジオボタン ---------- */
 
 label.weather-option {
   display: inline-flex;
@@ -167,76 +341,6 @@ label.weather-option {
   align-items: center;
   margin: 0;
   font-weight: 400;
-}
-
-.diary-picture img,
-.diary-image {
-  display: block;
-  width: 100%;
-  max-width: 32rem;
-  margin: 0.5rem 0;
-  border: 2px solid var(--line);
-  border-radius: 0.25rem;
-  background: var(--paper);
-}
-
-/* 原稿用紙風の縦書き。1マス = --cell。20行 × 20字 = 400字 */
-.manuscript {
-  --cell: clamp(14px, calc((100vw - 2rem - 4px) / 20), 24px);
-  margin: 1rem 0;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.vertical-text {
-  writing-mode: vertical-rl;
-  -webkit-text-orientation: mixed;
-  text-orientation: mixed;
-  box-sizing: content-box;
-  width: calc(var(--cell) * 20);
-  height: calc(var(--cell) * 20);
-  max-width: 100%;
-  margin: 0;
-  padding: 0;
-  border: 2px solid var(--accent);
-  background-color: var(--paper);
-  background-image:
-    linear-gradient(to right, var(--grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
-  background-size: var(--cell) var(--cell);
-  color: var(--fg);
-  /* 1文字を1マスに収めるため、縦書き用の字送りの情報を持つ日本語フォントだけを並べる。
-     情報がないフォント(Linux の WenQuanYi Zen Hei など)では字送りが1マスより長くなり、400字が収まらない。
-     macOS/iOS、Windows、Android と Linux(Noto CJK)、Linux(IPA)の順 */
-  font-family:
-    'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP', 'Noto Serif JP', 'IPAexMincho', 'IPAMincho',
-    'Noto Sans CJK JP', 'IPAexGothic', 'IPAGothic', serif;
-  font-size: calc(var(--cell) * 0.75);
-  line-height: var(--cell);
-  letter-spacing: calc(var(--cell) * 0.25);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  resize: none;
-}
-
-.diary-header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 1rem;
-  align-items: baseline;
-}
-
-.diary-header h2 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-.diary-header p {
-  margin: 0;
-}
-
-.diary-card {
-  margin: 1.5rem 0;
 }
 
 .diary-actions {

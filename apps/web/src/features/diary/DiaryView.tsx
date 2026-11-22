@@ -1,27 +1,38 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import type { Diary } from '@diary/shared';
+import { DiaryPage } from '../../components/DiaryPage.tsx';
 import { ErrorMessage } from '../../components/ErrorMessage.tsx';
 import { useMe } from '../../components/RequireAuth.tsx';
-import { VerticalPage } from '../../components/VerticalPage.tsx';
 import { api } from '../../lib/api-client.ts';
-import { formatJapaneseDate } from '../../lib/dates.ts';
+import { formatDiaryDay, formatJapaneseDate } from '../../lib/dates.ts';
 import { useAction } from '../../lib/use-action.ts';
 import { WEATHER_ICONS, WEATHER_LABELS } from '../../lib/weather.ts';
 
 export function DiaryCard({ diary }: { diary: Diary }) {
+  const fullDate = formatJapaneseDate(diary.date);
   return (
-    <article className="diary-card">
-      <header className="diary-header">
-        <h2>{formatJapaneseDate(diary.date)}</h2>
-        <p className="diary-weather">
+    <DiaryPage
+      heading={
+        <header className="diary-page__heading">
+          <h2>{fullDate}</h2>
+          <p>{diary.author.nickname}</p>
+        </header>
+      }
+      picture={<img src={diary.imageUrl} alt={`${fullDate}の絵`} />}
+      day={formatDiaryDay(diary.date)}
+      weather={
+        <p className="diary-page__weather-text">
+          <span className="diary-page__label">天気</span>
           <span aria-hidden="true">{WEATHER_ICONS[diary.weather]}</span> {WEATHER_LABELS[diary.weather]}
         </p>
-        <p className="diary-author">{diary.author.nickname}</p>
-      </header>
-      <img className="diary-image" src={diary.imageUrl} alt={`${formatJapaneseDate(diary.date)}の絵`} />
-      <VerticalPage label="文章">{diary.body}</VerticalPage>
-    </article>
+      }
+      body={
+        <p className="ruled-text" aria-label="文章">
+          {diary.body}
+        </p>
+      }
+    />
   );
 }
 
