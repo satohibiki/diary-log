@@ -30,6 +30,9 @@ describe('GET /me', () => {
       email: 'alice@example.com',
       visibility: 'private',
       hasAvatar: false,
+      // 004 FR-016: パスワードの有無(パスワードを持たない既存の利用者)
+      hasPassword: false,
+      passwordChangedAt: null,
     });
   });
 });

@@ -5,6 +5,7 @@ import type { BrowserContext } from '@playwright/test';
 import pg from 'pg';
 import sharp from 'sharp';
 import { loadConfig } from '../../apps/server/src/platform/config.ts';
+import { hashPassword } from '../../apps/server/src/auth/password.ts';
 import { aad, createCipherBox } from '../../apps/server/src/platform/crypto.ts';
 
 process.loadEnvFile('.env');
@@ -23,14 +24,21 @@ async function withClient<T>(fn: (client: pg.Client) => Promise<T>): Promise<T> 
   }
 }
 
-export async function seedUser(handle: string, visibility: 'private' | 'public' = 'private'): Promise<SeededUser> {
+export async function seedUser(
+  handle: string,
+  visibility: 'private' | 'public' = 'private',
+  password?: string,
+): Promise<SeededUser> {
   const id = randomUUID();
   const email = `${handle}@example.com`;
   const sealed = cipher.encrypt(Buffer.from(email), `user.email:${id}`);
+  // 004: パスワードを渡すと、パスワードを持つ利用者として作る
+  const passwordHash = password === undefined ? null : await hashPassword(password);
   await withClient((client) =>
     client.query(
-      'insert into users (id, handle, nickname, email_enc, key_version, visibility) values ($1, $2, $3, $4, $5, $6)',
-      [id, handle, handle, sealed.ciphertext, sealed.keyVersion, visibility],
+      `insert into users (id, handle, nickname, email_enc, key_version, visibility, password_hash, password_changed_at)
+       values ($1, $2, $3, $4, $5, $6, $7, case when $7::text is null then null else now() end)`,
+      [id, handle, handle, sealed.ciphertext, sealed.keyVersion, visibility, passwordHash],
     ),
   );
   return { id, handle, email };

@@ -31,5 +31,7 @@ export function toMe(deps: Deps, user: UserRow): Me {
     email: decryptEmail(deps, user),
     visibility: user.visibility,
     hasAvatar: user.avatarEnc !== null,
+    hasPassword: user.passwordHash !== null,
+    passwordChangedAt: user.passwordChangedAt?.toISOString() ?? null,
   };
 }

@@ -63,3 +63,34 @@ test.describe('signed-in pages', () => {
     await expect(page.getByText('きーぼーどだけで かきました')).toBeVisible();
   });
 });
+
+// 004: パスワードでのログインをキーボードだけで行える。表示の切り替えボタンも操作できる。
+// 初めて使う端末の確認の画面と、本人確認のダイアログにも重大な違反がない
+test('logs in with a password using only the keyboard, and the device check page is accessible', async ({ page, browserName }) => {
+  const tab = browserName === 'webkit' ? 'Alt+Tab' : 'Tab';
+  const password = 'correct horse battery staple';
+  const user = await seedUser(uniqueHandle('a11yp'), 'private', password);
+  await page.goto('/login');
+  await page.getByLabel('ID').focus();
+  await page.keyboard.type(user.handle);
+  await page.keyboard.press(tab);
+  await expect(page.getByLabel('パスワード', { exact: true })).toBeFocused();
+  await page.keyboard.type(password);
+  await page.keyboard.press(tab);
+  await expect(page.getByRole('button', { name: 'パスワードを表示' })).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(page.getByLabel('パスワード', { exact: true })).toHaveAttribute('type', 'text');
+  await page.keyboard.press(tab);
+  await expect(page.getByRole('button', { name: 'ログイン', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('ワンタイムパスワード')).toBeVisible();
+  await expectNoSeriousViolations(page);
+});
+
+test('the re-authentication dialog has no serious accessibility violations', async ({ page, context }) => {
+  await signInAs(context, await seedUser(uniqueHandle('a11yd'), 'private', 'correct horse battery staple'));
+  await page.goto('/settings/security');
+  await page.getByRole('button', { name: 'パスキーを追加' }).click();
+  await expect(page.getByRole('dialog', { name: '本人確認' })).toBeVisible();
+  await expectNoSeriousViolations(page);
+});

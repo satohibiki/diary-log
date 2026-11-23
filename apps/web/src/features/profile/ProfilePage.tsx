@@ -6,7 +6,7 @@ import { useMeState } from '../../components/RequireAuth.tsx';
 import { api, apiBlob } from '../../lib/api-client.ts';
 import { clearAllDrafts } from '../../lib/draft-store.ts';
 import { UserFacingError } from '../../lib/errors.ts';
-import { stepUp } from '../../lib/passkey.ts';
+import { useStepUp } from '../auth/StepUpDialog.tsx';
 import { useAction } from '../../lib/use-action.ts';
 import { logout } from '../auth/logout.ts';
 import { importDiaries, type ImportResult } from './import.ts';
@@ -74,11 +74,12 @@ export function ProfilePage() {
     await navigate('/login', { replace: true });
   });
 
+  const { stepUp, dialog } = useStepUp();
   const deleteAccount = useAction(async () => {
     if (!window.confirm('退会すると、すべての絵日記、画像、プロフィール、フォロー関係が削除され、元に戻せません。退会しますか?')) {
       return;
     }
-    await stepUp();
+    if (!(await stepUp())) return;
     await api('/me', { method: 'DELETE' });
     // サーバー側のセッションは退会と同時に削除される。端末の下書きも消去する
     await clearAllDrafts();
@@ -221,6 +222,7 @@ export function ProfilePage() {
           退会する
         </button>
       </p>
+      {dialog}
       <ErrorMessage error={deleteAccount.error} />
       {notice && <p role="status">{notice}</p>}
     </div>

@@ -2,19 +2,20 @@
 export type MailMessage = { to: string; subject: string; text: string };
 export type MailTransport = { sendMail: (message: MailMessage & { from: string }) => Promise<unknown> };
 
-export type OtpPurpose = 'registration' | 'recovery' | 'email_change';
-export type Notice = 'recovered' | 'passkey_added' | 'email_changed';
+export type OtpPurpose = 'registration' | 'recovery' | 'email_change' | 'new_device';
+export type Notice = 'recovered' | 'passkey_added' | 'email_changed' | 'new_device_login' | 'password_set' | 'password_changed';
 
 const OTP_SUBJECT: Record<OtpPurpose, string> = {
   registration: '【diary-log】メールアドレスの確認',
   recovery: '【diary-log】アカウントの復旧',
   email_change: '【diary-log】新しいメールアドレスの確認',
+  new_device: '【diary-log】新しい端末からのログインの確認',
 };
 
 const NOTICE: Record<Notice, { subject: string; text: string }> = {
   recovered: {
     subject: '【diary-log】アカウントが復旧されました',
-    text: 'あなたのアカウントで復旧が完了し、新しいパスキーが登録されました。\n心当たりがない場合は、すぐにパスキーの一覧を確認してください。',
+    text: 'パスワードの再設定または新しいパスキーの登録により、アカウントが復旧されました。\n心当たりがない場合は、すぐにアカウントを確認してください。',
   },
   passkey_added: {
     subject: '【diary-log】パスキーが追加されました',
@@ -23,6 +24,18 @@ const NOTICE: Record<Notice, { subject: string; text: string }> = {
   email_changed: {
     subject: '【diary-log】メールアドレスが変更されました',
     text: 'あなたのアカウントのメールアドレスが変更されました。\n心当たりがない場合は、すぐにアカウントを確認してください。',
+  },
+  new_device_login: {
+    subject: '【diary-log】新しい端末からログインしました',
+    text: 'あなたのアカウントに、新しい端末からログインしました。\n心当たりがない場合は、すぐにパスワードを変更してください。',
+  },
+  password_set: {
+    subject: '【diary-log】パスワードが設定されました',
+    text: 'あなたのアカウントにパスワードが設定されました。ほかの端末はログアウトされました。\n心当たりがない場合は、すぐにアカウントを確認してください。',
+  },
+  password_changed: {
+    subject: '【diary-log】パスワードが変更されました',
+    text: 'あなたのアカウントのパスワードが変更されました。ほかの端末はログアウトされました。\n心当たりがない場合は、すぐにアカウントを復旧してください。',
   },
 };
 

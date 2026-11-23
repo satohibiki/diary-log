@@ -2,18 +2,23 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, gt } from 'drizzle-orm';
 import type { Context } from 'hono';
+import { getCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { emailSchema, handleSchema, otpSchema } from '@diary/shared';
+import { emailSchema, handleSchema, otpSchema, passwordSchema } from '@diary/shared';
 import type { ApiApp, AppDeps } from '../app.ts';
+import type { Notice } from '../platform/mail.ts';
 import { aad } from '../platform/crypto.ts';
-import { pendingRegistrations, users, webauthnChallenges } from '../platform/db/schema.ts';
+import { pendingRegistrations, users } from '../platform/db/schema.ts';
 import { isUniqueViolation } from '../platform/db/errors.ts';
 import { AppError, errors } from '../platform/errors.ts';
 import { credentialSchema, parseJson, uuidSchema } from '../platform/validation.ts';
-import { findUserByHandle, findUserById } from '../profile/account.ts';
+import { decryptEmail, findUserByHandle, findUserById } from '../profile/account.ts';
 import { requireAuth, type AuthEnv } from './middleware.ts';
+import type { OtpPurpose } from '../platform/mail.ts';
 import { issueOtp, verifyOtp } from './otp.ts';
+import { checkPasswordRules, hashPassword, verifyAgainstDummy, verifyPassword } from './password.ts';
 import { createSessionStore, type Scope } from './session.ts';
+import { DEVICE_COOKIE, deviceCookie, isTrusted, revokeAll, trust } from './trusted-device.ts';
 import {
   authenticationOptions,
   consumeChallenge,
@@ -30,6 +35,12 @@ const HOUR = 3600;
 const DAY = 24 * HOUR;
 const passkeyName = z.string().trim().min(1).max(50).optional();
 
+/** パスワードの条件(一覧と ID)を満たさなければ、項目のエラーにする(004 FR-003) */
+export function assertPasswordRules(password: string, handle: string): void {
+  const failed = checkPasswordRules(password, handle);
+  if (failed.length > 0) throw errors.validation(failed.map((code) => ({ field: 'password', code })));
+}
+
 const mailFailed = () => new AppError(502, 'mail-failed', 'メールを送信できませんでした。時間をおいて再度お試しください');
 
 export function authRoutes(api: ApiApp, deps: AppDeps): void {
@@ -41,7 +52,13 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
     c.header('Set-Cookie', sessions.cookie(token, scope), { append: true });
   };
 
-  const sendOtp = async (to: string, purpose: 'registration' | 'recovery' | 'email_change', code: string) => {
+  /** この端末を確認済みにし、Cookie を設定する(004 FR-015) */
+  const trustDevice = async (c: Context<AuthEnv>, userId: string) => {
+    const token = await trust(deps, userId, getCookie(c, DEVICE_COOKIE));
+    c.header('Set-Cookie', deviceCookie(token), { append: true });
+  };
+
+  const sendOtp = async (to: string, purpose: OtpPurpose, code: string) => {
     try {
       await deps.mailer.sendOtp(to, purpose, code);
     } catch (error) {
@@ -102,17 +119,16 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
       .update(pendingRegistrations)
       .set({ emailVerifiedAt: deps.now() })
       .where(eq(pendingRegistrations.id, pending.id));
-    return c.json(await registrationOptions(deps, 'register', { id: pending.id, handle: pending.handle }));
+    // 004 FR-001: 続けてパスワードを設定する(パスキーは求めない)
+    return c.body(null, 204);
   });
 
   api.post('/auth/registration/finish', async (c) => {
-    const body = await parseJson(c, z.object({ challengeId: uuidSchema, credential: credentialSchema, name: passkeyName }));
-    // チャレンジの対象は登録途中のデータ。メールアドレスが確認済みでなければ失敗する
-    const subject = await subjectOfChallenge(deps, body.challengeId);
-    const pending = subject ? await pendingFor(subject) : undefined;
+    const body = await parseJson(c, z.object({ registrationId: uuidSchema, password: passwordSchema }));
+    const pending = await pendingFor(body.registrationId);
     if (!pending?.emailVerifiedAt) throw errors.authenticationFailed();
-    const challenge = await consumeChallenge(deps, body.challengeId, 'register', pending.id);
-    const verified = await verifyRegistration(deps, body.credential, challenge);
+    assertPasswordRules(body.password, pending.handle);
+    const passwordHash = await hashPassword(body.password);
 
     // メールアドレスは users の AAD で再暗号化する
     const email = pendingEmail(pending);
@@ -125,8 +141,9 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
           nickname: pending.handle,
           emailEnc: sealed.ciphertext,
           keyVersion: sealed.keyVersion,
+          passwordHash,
+          passwordChangedAt: deps.now(),
         });
-        await insertPasskey({ ...deps, db: tx }, pending.id, verified, body.name);
         await tx.delete(pendingRegistrations).where(eq(pendingRegistrations.id, pending.id));
       });
     } catch (error) {
@@ -136,6 +153,8 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
       throw error;
     }
     await signIn(c, pending.id, 'full');
+    // メールアドレスを確認した端末のため、確認済みにする(004 research.md §4)
+    await trustDevice(c, pending.id);
     return c.body(null, 201);
   });
 
@@ -159,6 +178,49 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
     await verifyAuthentication(deps, body.credential, challenge, passkey);
     await signIn(c, user.id, 'full');
     return c.body(null, 204);
+  });
+
+  // 004 FR-002、FR-005、FR-015: ID とパスワード。初めて使う端末ではメールの OTP も求める
+  api.post('/auth/login/password', async (c) => {
+    const ip = deps.clientIp(c);
+    await limit.consume('login-verify-ip', ip, 10, 60);
+    const raw = await parseJson(c, z.object({ handle: z.string().max(64), password: z.string().max(1024) }));
+    // ID 単独では制限しない。第三者が本人を締め出せないようにするため
+    await limit.consume('login-ip-handle', `${ip}|${raw.handle}`, 5, 60);
+    // 形式の誤り、ID がない、パスワードを持たない場合も、同じ計算をして同じ 401 を返す(ID の列挙の防止)
+    const handle = handleSchema.safeParse(raw.handle);
+    const user = handle.success ? await findUserByHandle(deps, handle.data) : undefined;
+    const matched = await matchesPassword(raw.password, user?.passwordHash ?? null);
+    if (!user || !matched) throw errors.authenticationFailed();
+
+    if (await isTrusted(deps, user.id, getCookie(c, DEVICE_COOKIE))) {
+      await trustDevice(c, user.id);
+      await signIn(c, user.id, 'full');
+      return c.body(null, 204);
+    }
+    await signIn(c, user.id, 'device_check');
+    await sendOtp(decryptEmail(deps, user), 'new_device', await issueOtp(deps, 'new_device', user.id));
+    return c.json({ next: 'verify-device' }, 202);
+  });
+
+  api.post('/auth/login/device/verify', requireAuth('device_check'), async (c) => {
+    await limit.consume('otp-verify-ip', deps.clientIp(c), 30, HOUR);
+    const session = c.get('session');
+    const { code } = await parseJson(c, z.object({ code: otpSchema }));
+    await verifyOtp(deps, 'new_device', session.userId, code);
+    await sessions.revoke(session.token);
+    await signIn(c, session.userId, 'full');
+    await trustDevice(c, session.userId);
+    await notify(deps, await findUserById(deps, session.userId), 'new_device_login');
+    return c.body(null, 204);
+  });
+
+  api.post('/auth/login/device/resend', requireAuth('device_check'), async (c) => {
+    const { userId } = c.get('session');
+    await limit.consume('otp-send-user', userId, 3, HOUR);
+    const user = await findUserById(deps, userId);
+    await sendOtp(decryptEmail(deps, user), 'new_device', await issueOtp(deps, 'new_device', userId));
+    return c.body(null, 202);
   });
 
   api.post('/auth/logout', async (c) => {
@@ -197,6 +259,34 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
     if (!user) throw errors.authenticationFailed();
     await verifyOtp(deps, 'recovery', user.id, code);
     await signIn(c, user.id, 'recovery');
+    // 004 FR-009: 続けて、新しいパスワードの設定か新しいパスキーの登録を選ぶ
+    return c.body(null, 204);
+  });
+
+  /** 復旧の完了: 全セッションと確認済みの端末を失効させ、この端末を確認済みにしてログインする(004 research.md §9) */
+  const completeRecovery = async (c: Context<AuthEnv>, userId: string) => {
+    await sessions.revokeAllForUser(userId);
+    await revokeAll(deps, userId);
+    await signIn(c, userId, 'full');
+    await trustDevice(c, userId);
+    await notify(deps, await findUserById(deps, userId), 'recovered');
+  };
+
+  api.post('/auth/recovery/password', requireAuth('recovery'), async (c) => {
+    const { userId } = c.get('session');
+    const { password } = await parseJson(c, z.object({ password: passwordSchema }));
+    const user = await findUserById(deps, userId);
+    assertPasswordRules(password, user.handle);
+    await deps.db
+      .update(users)
+      .set({ passwordHash: await hashPassword(password), passwordChangedAt: deps.now(), updatedAt: deps.now() })
+      .where(eq(users.id, userId));
+    await completeRecovery(c, userId);
+    return c.body(null, 204);
+  });
+
+  api.post('/auth/recovery/passkey/options', requireAuth('recovery'), async (c) => {
+    const user = await findUserById(deps, c.get('session').userId);
     return c.json(await registrationOptions(deps, 'recover', user, await passkeysOf(deps, user.id)));
   });
 
@@ -206,11 +296,7 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
     const challenge = await consumeChallenge(deps, body.challengeId, 'recover', session.userId);
     const verified = await verifyRegistration(deps, body.credential, challenge);
     await insertPasskey(deps, session.userId, verified, body.name);
-    // 復旧の完了時に、他のすべてのセッションを失効させる
-    await sessions.revokeAllForUser(session.userId);
-    await signIn(c, session.userId, 'full');
-    const user = await findUserById(deps, session.userId);
-    await notify(deps, user, 'recovered');
+    await completeRecovery(c, session.userId);
     return c.body(null, 204);
   });
 
@@ -219,6 +305,17 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
   api.post('/auth/step-up/options', requireAuth('full'), async (c) => {
     const { userId } = c.get('session');
     return c.json(await authenticationOptions(deps, 'step_up', userId, await passkeysOf(deps, userId)));
+  });
+
+  // 004: パスワードでの本人確認(research.md §7)
+  api.post('/auth/step-up/password', requireAuth('full'), async (c) => {
+    const session = c.get('session');
+    await limit.consume('step-up-user', session.userId, 5, 15 * 60);
+    const { password } = await parseJson(c, z.object({ password: z.string().max(1024) }));
+    const user = await findUserById(deps, session.userId);
+    if (!(await matchesPassword(password, user.passwordHash))) throw errors.authenticationFailed();
+    await sessions.markStepUp(session.token);
+    return c.body(null, 204);
   });
 
   api.post('/auth/step-up/verify', requireAuth('full'), async (c) => {
@@ -233,19 +330,20 @@ export function authRoutes(api: ApiApp, deps: AppDeps): void {
   });
 }
 
-async function subjectOfChallenge(deps: AppDeps, challengeId: string): Promise<string | null> {
-  const [row] = await deps.db
-    .select({ subjectId: webauthnChallenges.subjectId })
-    .from(webauthnChallenges)
-    .where(eq(webauthnChallenges.id, challengeId));
-  return row?.subjectId ?? null;
+/**
+ * パスワードを比べる。パスワードを持たない場合と形式が誤っている場合も同じ計算をして false を返す(004 FR-005)
+ */
+export async function matchesPassword(raw: string, stored: string | null): Promise<boolean> {
+  const password = passwordSchema.safeParse(raw);
+  if (!password.success || stored === null) return verifyAgainstDummy(password.data ?? raw);
+  return verifyPassword(password.data, stored);
 }
 
 /** セキュリティ通知を送る。送信の失敗はログに記録する(処理自体は完了しているため) */
 export async function notify(
   deps: AppDeps,
   user: typeof users.$inferSelect,
-  notice: 'recovered' | 'passkey_added' | 'email_changed',
+  notice: Notice,
   to?: string,
 ): Promise<void> {
   try {

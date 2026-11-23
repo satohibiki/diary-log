@@ -33,6 +33,25 @@ describe('createMailer', () => {
     for (const message of sent) expect(message.text.length).toBeGreaterThan(0);
   });
 
+  // 004: 新しい端末の確認と、パスワードの通知
+  it('sends the new-device one-time password and the password notifications', async () => {
+    const { sent, mailer } = capture();
+    await mailer.sendOtp('user@example.com', 'new_device', '33334444');
+    await mailer.notify('user@example.com', 'new_device_login');
+    await mailer.notify('user@example.com', 'password_set');
+    await mailer.notify('user@example.com', 'password_changed');
+    await mailer.notify('user@example.com', 'recovered');
+    expect(sent.map((m) => m.subject)).toEqual([
+      '【diary-log】新しい端末からのログインの確認',
+      '【diary-log】新しい端末からログインしました',
+      '【diary-log】パスワードが設定されました',
+      '【diary-log】パスワードが変更されました',
+      '【diary-log】アカウントが復旧されました',
+    ]);
+    expect(sent[0]?.text).toContain('33334444');
+    expect(sent[4]?.text).toContain('パスワードの再設定または新しいパスキーの登録');
+  });
+
   it('propagates transport failures', async () => {
     const mailer = createMailer(
       { sendMail: () => Promise.reject(new Error('smtp down')) },

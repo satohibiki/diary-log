@@ -15,6 +15,9 @@ export type Me = {
   email: string;
   visibility: Visibility;
   hasAvatar: boolean;
+  /** 004 FR-016 */
+  hasPassword: boolean;
+  passwordChangedAt: string | null;
 };
 
 export type UserSummary = { handle: string; nickname: string; hasAvatar: boolean };

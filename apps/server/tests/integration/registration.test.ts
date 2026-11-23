@@ -1,8 +1,13 @@
+// 004 FR-001 で登録をパスキーからパスワードに変えたため、パスキーでの登録を前提にしたテストを
+// パスワードでの登録に書き換えた(ID とメールアドレスの確認の期待は変えない)
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { buildTestContext, lastOtp } from '../helpers/app.ts';
+import { DEVICE_COOKIE } from '../../src/auth/trusted-device.ts';
+import { SESSION_COOKIE } from '../../src/auth/session.ts';
+import { users } from '../../src/platform/db/schema.ts';
+import { buildTestContext, lastOtp, type TestClient } from '../helpers/app.ts';
 import { closeDb, resetDb } from '../helpers/db.ts';
-import { registerUser } from '../helpers/flows.ts';
-import { SoftwareAuthenticator } from '../helpers/software-authenticator.ts';
+import { DEFAULT_PASSWORD, loginWithPassword, registerUser } from '../helpers/flows.ts';
 
 const ctx = buildTestContext();
 beforeEach(async () => {
@@ -11,24 +16,70 @@ beforeEach(async () => {
 });
 afterAll(closeDb);
 
-type Options = { challengeId: string; options: { challenge: string; rp: { id?: string }; user: { id: string }; authenticatorSelection?: Record<string, unknown> } };
+async function verified(handle = 'alice', email = 'a@example.com'): Promise<{ client: TestClient; registrationId: string }> {
+  const client = ctx.client();
+  const start = await client.post('/api/v1/auth/registration/start', { handle, email });
+  const { registrationId } = (await start.json()) as { registrationId: string };
+  const res = await client.post('/api/v1/auth/registration/verify-email', { registrationId, code: lastOtp(ctx.outbox, email) });
+  expect(res.status).toBe(204);
+  return { client, registrationId };
+}
+
+const fieldCodes = async (res: Response) =>
+  ((await res.json()) as { errors: { field: string; code: string }[] }).errors.map((e) => `${e.field}/${e.code}`);
 
 describe('registration', () => {
-  it('creates an account with ID, verified email, and passkey, then signs in', async () => {
+  it('creates an account with ID, verified email, and password, then signs in', async () => {
     const { client } = await registerUser(ctx, 'alice');
     const me = await client.get('/api/v1/me');
     expect(me.status).toBe(200);
-    expect(await me.json()).toMatchObject({ handle: 'alice', email: 'alice@example.com', visibility: 'private' });
+    expect(await me.json()).toMatchObject({ handle: 'alice', email: 'alice@example.com', visibility: 'private', hasPassword: true });
   });
 
-  it('requires discoverable credentials and user verification, and never asks for a password', async () => {
+  it('does not ask for a passkey after the email is verified', async () => {
     const client = ctx.client();
     const start = await client.post('/api/v1/auth/registration/start', { handle: 'alice', email: 'a@example.com' });
     const { registrationId } = (await start.json()) as { registrationId: string };
     const res = await client.post('/api/v1/auth/registration/verify-email', { registrationId, code: lastOtp(ctx.outbox) });
-    const body = (await res.json()) as Options;
-    expect(body.options.authenticatorSelection).toMatchObject({ residentKey: 'required', userVerification: 'required' });
-    expect(JSON.stringify(body).toLowerCase()).not.toContain('password');
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe('');
+  });
+
+  it('stores only a scrypt hash, sets the session and the trusted device cookies', async () => {
+    const { client, registrationId } = await verified();
+    const res = await client.post('/api/v1/auth/registration/finish', { registrationId, password: DEFAULT_PASSWORD });
+    expect(res.status).toBe(201);
+    expect(client.cookies.get(SESSION_COOKIE)).toBeTruthy();
+    expect(client.cookies.get(DEVICE_COOKIE)).toBeTruthy();
+    const [row] = await ctx.deps.db.select().from(users).where(eq(users.handle, 'alice'));
+    expect(row?.passwordHash).toMatch(/^scrypt\$/);
+    expect(row?.passwordHash).not.toContain(DEFAULT_PASSWORD);
+    expect(row?.passwordChangedAt).toBeInstanceOf(Date);
+  });
+
+  it('rejects passwords that break the rules', async () => {
+    const { client, registrationId } = await verified();
+    const finish = (password: string) => client.post('/api/v1/auth/registration/finish', { registrationId, password });
+    const short = await finish('a'.repeat(11));
+    expect(short.status).toBe(422);
+    expect(await fieldCodes(short)).toEqual(['password/too_small']);
+    expect(await fieldCodes(await finish('PasswordPassword'))).toEqual(['password/common']);
+    expect(await fieldCodes(await finish('my-alice-diary-2026'))).toEqual(['password/contains_handle']);
+  });
+
+  it('cannot finish without a verified email', async () => {
+    const client = ctx.client();
+    const start = await client.post('/api/v1/auth/registration/start', { handle: 'alice', email: 'a@example.com' });
+    const { registrationId } = (await start.json()) as { registrationId: string };
+    const res = await client.post('/api/v1/auth/registration/finish', { registrationId, password: DEFAULT_PASSWORD });
+    expect(res.status).toBe(401);
+  });
+
+  it('lets the device used for sign-up log in with the password alone', async () => {
+    const { client } = await registerUser(ctx, 'alice');
+    await client.post('/api/v1/auth/logout');
+    const { res } = await loginWithPassword(ctx, 'alice', DEFAULT_PASSWORD, { client });
+    expect(res.status).toBe(204);
   });
 
   it('rejects a handle that is already used with 409', async () => {
@@ -61,15 +112,6 @@ describe('registration', () => {
     expect(res.status).toBe(401);
   });
 
-  it('cannot finish without a verified email (no valid challenge)', async () => {
-    const authenticator = new SoftwareAuthenticator();
-    const res = await ctx.client().post('/api/v1/auth/registration/finish', {
-      challengeId: '00000000-0000-4000-8000-000000000000',
-      credential: authenticator.create({ challenge: 'AAAA', rp: { id: 'localhost' }, user: { id: 'AAAA' } }),
-    });
-    expect(res.status).toBe(401);
-  });
-
   it('can resend the code, and earlier codes stay valid (up to 3)', async () => {
     const client = ctx.client();
     const start = await client.post('/api/v1/auth/registration/start', { handle: 'alice', email: 'a@example.com' });
@@ -79,24 +121,14 @@ describe('registration', () => {
     expect(resend.status).toBe(202);
     expect(ctx.outbox).toHaveLength(2);
     const res = await client.post('/api/v1/auth/registration/verify-email', { registrationId, code: first });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(204);
   });
 
   it('re-checks the handle when finishing, so two pending registrations cannot both take it', async () => {
-    const make = async (email: string) => {
-      const client = ctx.client();
-      const start = await client.post('/api/v1/auth/registration/start', { handle: 'alice', email });
-      const { registrationId } = (await start.json()) as { registrationId: string };
-      const verify = await client.post('/api/v1/auth/registration/verify-email', { registrationId, code: lastOtp(ctx.outbox, email) });
-      return { client, body: (await verify.json()) as Options };
-    };
-    const a = await make('a@example.com');
-    const b = await make('b@example.com');
+    const a = await verified('alice', 'a@example.com');
+    const b = await verified('alice', 'b@example.com');
     const finish = (x: typeof a) =>
-      x.client.post('/api/v1/auth/registration/finish', {
-        challengeId: x.body.challengeId,
-        credential: new SoftwareAuthenticator().create(x.body.options),
-      });
+      x.client.post('/api/v1/auth/registration/finish', { registrationId: x.registrationId, password: DEFAULT_PASSWORD });
     expect((await finish(a)).status).toBe(201);
     const second = await finish(b);
     expect(second.status).toBe(409);

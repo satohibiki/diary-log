@@ -30,4 +30,6 @@ export const me = {
   email: 'alice@example.com',
   visibility: 'private',
   hasAvatar: false,
+  hasPassword: false,
+  passwordChangedAt: null,
 };
