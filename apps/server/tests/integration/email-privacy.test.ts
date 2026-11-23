@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { buildTestContext, lastOtp } from '../helpers/app.ts';
 import { closeDb, resetDb } from '../helpers/db.ts';
-import { registerUser, stepUp } from '../helpers/flows.ts';
+import { DEFAULT_PASSWORD, registerUser, stepUpWithPassword } from '../helpers/flows.ts';
 
 const ctx = buildTestContext();
 beforeEach(async () => {
@@ -26,17 +26,20 @@ async function databaseText(): Promise<string> {
 }
 
 describe('email privacy', () => {
-  it('never stores email addresses in plain text', async () => {
-    const { client, authenticator } = await registerUser(ctx, 'alice', 'secret-alice@example.com');
+  // 004: パスワードで登録し、パスワードで本人確認をする(パスキーでの登録の経路を削除したため)。
+  // パスワードも平文で保存されないことを確かめる(SC-005)
+  it('never stores email addresses or passwords in plain text', async () => {
+    const { client } = await registerUser(ctx, 'alice', 'secret-alice@example.com');
     // 登録途中のデータも確認する
     await ctx.client().post('/api/v1/auth/registration/start', { handle: 'bobby', email: 'secret-bob@example.com' });
-    await stepUp(client, authenticator);
+    await stepUpWithPassword(client);
     await client.post('/api/v1/me/email-change/start', { email: 'secret-new@example.com' });
     const text = await databaseText();
     expect(text).not.toContain('secret-alice@example.com');
     expect(text).not.toContain('secret-bob@example.com');
     expect(text).not.toContain('secret-new@example.com');
     expect(text).not.toContain(lastOtp(ctx.outbox));
+    expect(text).not.toContain(DEFAULT_PASSWORD);
   });
 
   it('shows each user only their own email', async () => {

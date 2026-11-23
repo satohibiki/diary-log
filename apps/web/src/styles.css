@@ -113,6 +113,7 @@ label {
 
 input[type='text'],
 input[type='email'],
+input[type='password'],
 input[type='date'],
 select {
   width: 100%;
@@ -122,6 +123,18 @@ select {
   border-radius: 0.375rem;
   background: var(--paper);
   color: var(--fg);
+}
+
+/* パスワードの欄と、表示の切り替えボタン(004 FR-014) */
+.password-input {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 24rem;
+}
+
+.password-input input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ファイル選択欄の幅はブラウザとフォントで決まり、幅360pxでははみ出すことがあるため、親の幅までに制限する */

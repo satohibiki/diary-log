@@ -1,11 +1,14 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProfilePage } from '../src/features/profile/ProfilePage.tsx';
 import { me, mockFetch } from './helpers.ts';
 
-const state = vi.hoisted(() => ({ me: { handle: 'alice', nickname: '<b>ありす</b>', email: 'alice@example.com', visibility: 'private', hasAvatar: false }, setMe: vi.fn() }));
+const state = vi.hoisted(() => ({
+  me: { handle: 'alice', nickname: '<b>ありす</b>', email: 'alice@example.com', visibility: 'private', hasAvatar: false, hasPassword: false, passwordChangedAt: null as string | null },
+  setMe: vi.fn(),
+}));
 vi.mock('../src/components/RequireAuth.tsx', () => ({ useMe: () => state.me, useMeState: () => state }));
 const webauthn = vi.hoisted(() => ({
   browserSupportsWebAuthn: vi.fn(() => true),
@@ -18,6 +21,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   state.setMe.mockReset();
+  state.me.hasPassword = false;
 });
 
 function renderPage() {
@@ -78,5 +82,24 @@ describe('ProfilePage', () => {
       'POST /api/v1/auth/step-up/verify',
       'DELETE /api/v1/me',
     ]);
+  });
+
+  // 004: パスワードを持つ利用者は、パスワードで本人確認をして退会できる
+  it('deletes the account after re-authentication with the password', async () => {
+    state.me.hasPassword = true;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const calls = mockFetch({
+      'POST /api/v1/auth/step-up/password': { status: 204 },
+      'DELETE /api/v1/me': { status: 204 },
+    });
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: '退会する' }));
+    const dialog = await screen.findByRole('dialog', { name: '本人確認' });
+    await userEvent.type(within(dialog).getByLabelText('パスワード'), 'correct horse battery staple');
+    await userEvent.click(within(dialog).getByRole('button', { name: '確認する' }));
+    expect(await screen.findByText('ログイン画面')).toBeTruthy();
+    expect(calls.map((c) => `${c.init?.method ?? 'GET'} ${c.url}`)).toEqual(['POST /api/v1/auth/step-up/password', 'DELETE /api/v1/me']);
+    expect(JSON.parse(calls[0]?.init?.body as string)).toEqual({ password: 'correct horse battery staple' });
+    expect(webauthn.startAuthentication).not.toHaveBeenCalled();
   });
 });

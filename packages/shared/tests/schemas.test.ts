@@ -8,6 +8,7 @@ import {
   monthSchema,
   nicknameSchema,
   otpSchema,
+  passwordSchema,
   visibilitySchema,
   weatherSchema,
 } from '../src/index.ts';
@@ -106,5 +107,34 @@ describe('date schemas', () => {
   it('accepts YYYY-MM months only', () => {
     expect(ok(monthSchema, '2026-11')).toBe(true);
     expect(ok(monthSchema, '2026-13')).toBe(false);
+  });
+});
+
+// 004 FR-003: NFKC で正規化し、コードポイント数で 12〜128 文字
+describe('passwordSchema', () => {
+  const issueCode = (value: string) => passwordSchema.safeParse(value).error?.issues[0]?.code;
+
+  it('rejects 11 code points and accepts 12', () => {
+    expect(issueCode('a'.repeat(11))).toBe('too_small');
+    expect(passwordSchema.safeParse('a'.repeat(12)).success).toBe(true);
+  });
+
+  it('accepts 128 code points and rejects 129', () => {
+    expect(passwordSchema.safeParse('a'.repeat(128)).success).toBe(true);
+    expect(issueCode('a'.repeat(129))).toBe('too_big');
+  });
+
+  it('normalizes full-width characters to half-width', () => {
+    expect(passwordSchema.parse('ＡＢＣＤＥＦＧＨＩＪＫＬ')).toBe('ABCDEFGHIJKL');
+  });
+
+  it('accepts a Japanese passphrase with spaces', () => {
+    expect(passwordSchema.safeParse('きょうは こうえんで あそんだ').success).toBe(true);
+  });
+
+  it('counts a combining sequence as one character after normalization', () => {
+    const combined = 'か\u3099'.repeat(11); // NFKC で「が」11文字
+    expect(issueCode(combined)).toBe('too_small');
+    expect(passwordSchema.safeParse(`${combined}が`).success).toBe(true);
   });
 });

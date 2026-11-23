@@ -14,6 +14,21 @@ const RESERVED_HANDLES = new Set([
   'system', 'undefined', 'users',
 ]);
 
+/** 004 FR-003: NFKC で正規化し、コードポイント数で 12〜128 文字。正規化した値を出力する */
+export const PASSWORD_MIN = 12;
+export const PASSWORD_MAX = 128;
+export const passwordSchema = z
+  .string()
+  .transform((value) => value.normalize('NFKC'))
+  .superRefine((value, ctx) => {
+    const length = Array.from(value).length;
+    if (length < PASSWORD_MIN) {
+      ctx.addIssue({ code: 'too_small', origin: 'string', minimum: PASSWORD_MIN, inclusive: true });
+    } else if (length > PASSWORD_MAX) {
+      ctx.addIssue({ code: 'too_big', origin: 'string', maximum: PASSWORD_MAX, inclusive: true });
+    }
+  });
+
 export const handleSchema = z
   .string()
   .regex(/^[a-z0-9_]{3,20}$/)

@@ -5,9 +5,10 @@ import { sessions } from '../platform/db/schema.ts';
 import type { Secrets } from '../platform/secrets.ts';
 
 export const SESSION_COOKIE = '__Host-session';
-export type Scope = 'full' | 'recovery';
+/** device_check: 初めて使う端末で、パスワードの後に OTP を待つ間(004 FR-015) */
+export type Scope = 'full' | 'recovery' | 'device_check';
 
-const TTL_SECONDS: Record<Scope, number> = { full: 30 * 24 * 3600, recovery: 10 * 60 };
+const TTL_SECONDS: Record<Scope, number> = { full: 30 * 24 * 3600, recovery: 10 * 60, device_check: 10 * 60 };
 const STEP_UP_MS = 5 * 60 * 1000;
 
 export type SessionInfo = {

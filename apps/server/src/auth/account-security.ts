@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { and, count, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { emailSchema, otpSchema, type Passkey } from '@diary/shared';
+import { emailSchema, otpSchema, passwordSchema, type Passkey } from '@diary/shared';
 import type { ApiApp, AppDeps } from '../app.ts';
 import { aad } from '../platform/crypto.ts';
 import { passkeys, users } from '../platform/db/schema.ts';
@@ -11,12 +11,16 @@ import { credentialSchema, parseJson, uuidSchema } from '../platform/validation.
 import { decryptEmail, findUserById } from '../profile/account.ts';
 import { requireAuth, requireStepUp } from './middleware.ts';
 import { issueOtp, verifyOtp } from './otp.ts';
-import { notify } from './routes.ts';
+import { assertPasswordRules, matchesPassword, notify } from './routes.ts';
+import { hashPassword } from './password.ts';
+import { createSessionStore } from './session.ts';
+import { revokeAll } from './trusted-device.ts';
 import { consumeChallenge, insertPasskey, passkeysOf, registrationOptions, verifyRegistration } from './webauthn.ts';
 
 export function accountSecurityRoutes(api: ApiApp, deps: AppDeps): void {
   const full = requireAuth('full');
   const stepUp = requireStepUp(deps);
+  const sessions = createSessionStore(deps);
 
   api.get('/me/passkeys', full, async (c) => {
     const rows = await passkeysOf(deps, c.get('session').userId);
@@ -59,9 +63,36 @@ export function accountSecurityRoutes(api: ApiApp, deps: AppDeps): void {
         .for('update');
       if (!own) throw errors.notFound();
       const [total] = await tx.select({ n: count() }).from(passkeys).where(eq(passkeys.userId, userId));
-      if ((total?.n ?? 0) <= 1) throw errors.conflict('last-passkey', '最後のパスキーは削除できません');
+      // 004 FR-011: パスワードを持つなら最後のパスキーも削除できる(ログインの方法が残るため)
+      const [owner] = await tx.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, userId));
+      if ((total?.n ?? 0) <= 1 && !owner?.passwordHash) {
+        throw errors.conflict('last-passkey', '最後のパスキーは削除できません');
+      }
       await tx.delete(passkeys).where(eq(passkeys.id, own.id));
     });
+    return c.body(null, 204);
+  });
+
+  // 004 FR-007、FR-008、FR-010、FR-015a: パスワードの変更と設定
+  api.put('/me/password', full, async (c) => {
+    const session = c.get('session');
+    const body = await parseJson(c, z.object({ currentPassword: z.string().max(1024).optional(), newPassword: passwordSchema }));
+    const user = await findUserById(deps, session.userId);
+    if (user.passwordHash) {
+      await deps.rateLimiter.consume('password-change-user', user.id, 5, 15 * 60);
+      if (!(await matchesPassword(body.currentPassword ?? '', user.passwordHash))) throw errors.authenticationFailed();
+    } else if (!session.stepUpUntil || session.stepUpUntil <= deps.now()) {
+      // パスワードを持たない利用者は、パスキーで本人確認をしてから設定する
+      throw errors.stepUpRequired();
+    }
+    assertPasswordRules(body.newPassword, user.handle);
+    await deps.db
+      .update(users)
+      .set({ passwordHash: await hashPassword(body.newPassword), passwordChangedAt: deps.now(), updatedAt: deps.now() })
+      .where(eq(users.id, user.id));
+    await sessions.revokeAllForUser(user.id, session.token);
+    await revokeAll(deps, user.id);
+    await notify(deps, user, user.passwordHash ? 'password_changed' : 'password_set');
     return c.body(null, 204);
   });
 
@@ -102,7 +133,9 @@ export function accountSecurityRoutes(api: ApiApp, deps: AppDeps): void {
       .update(users)
       .set({ emailEnc: sealed.ciphertext, avatarEnc: avatar, keyVersion: sealed.keyVersion, updatedAt: deps.now() })
       .where(eq(users.id, userId));
+    // 004 FR-017: 変更前と変更後の両方に知らせる
     await notify(deps, user, 'email_changed', oldEmail);
+    await notify(deps, user, 'email_changed', newEmail);
     return c.body(null, 204);
   });
 }

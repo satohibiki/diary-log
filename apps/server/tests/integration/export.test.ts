@@ -5,6 +5,8 @@ import { buildTestContext } from '../helpers/app.ts';
 import { closeDb, resetDb } from '../helpers/db.ts';
 import { createDiary } from '../helpers/diaries.ts';
 import { createUser, follow, loginAs } from '../helpers/users.ts';
+import { DEFAULT_PASSWORD, registerUser } from '../helpers/flows.ts';
+import { users } from '../../src/platform/db/schema.ts';
 
 const ctx = buildTestContext();
 beforeEach(resetDb);
@@ -44,6 +46,18 @@ describe('GET /me/export', () => {
     const b = await loginAs(ctx, bob);
     const files = unzipSync(new Uint8Array(await (await b.get('/api/v1/me/export')).arrayBuffer()));
     expect((JSON.parse(strFromU8(files['manifest.json'] ?? new Uint8Array())) as Manifest).diaries).toEqual([]);
+  });
+
+  // 004 SC-005: エクスポートにパスワードもそのハッシュも含めない
+  it('contains neither the password nor its hash', async () => {
+    const { client } = await registerUser(ctx, 'alice');
+    await createDiary(client, '2026-11-01', 'ついたち');
+    const [row] = await ctx.deps.db.select({ hash: users.passwordHash }).from(users);
+    const files = unzipSync(new Uint8Array(await (await client.get('/api/v1/me/export')).arrayBuffer()));
+    const manifest = strFromU8(files['manifest.json'] ?? new Uint8Array());
+    expect(manifest).not.toContain(DEFAULT_PASSWORD);
+    expect(manifest).not.toContain(row?.hash ?? 'scrypt$');
+    expect(manifest).not.toMatch(/password/i);
   });
 
   it('requires sign-in', async () => {

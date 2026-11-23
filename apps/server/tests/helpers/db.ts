@@ -17,7 +17,7 @@ export function testDb(): Db {
 export async function resetDb(): Promise<void> {
   await testDb().execute(sql`
     TRUNCATE users, passkeys, sessions, webauthn_challenges, pending_registrations,
-      email_otps, diaries, follows, blocks, rate_limits RESTART IDENTITY CASCADE
+      email_otps, diaries, follows, blocks, rate_limits, trusted_devices RESTART IDENTITY CASCADE
   `);
 }
 

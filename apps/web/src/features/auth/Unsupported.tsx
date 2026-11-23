@@ -1,7 +1,8 @@
-export function PasskeyUnsupported() {
+/** パスキーに対応していない環境で、パスキーのボタンの説明として表示する(004 FR-012) */
+export function PasskeyUnsupported({ id }: { id: string }) {
   return (
-    <p role="status">
-      このブラウザはパスキーに対応していません。パスキーに対応したブラウザ(Chrome、Edge、Firefox、Safari の最新版)でお試しください。
+    <p id={id} role="status">
+      このブラウザはパスキーに対応していません
     </p>
   );
 }

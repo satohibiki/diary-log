@@ -6,6 +6,7 @@ import {
   pendingRegistrations,
   rateLimits,
   sessions,
+  trustedDevices,
   webauthnChallenges,
 } from '../../src/platform/db/schema.ts';
 import { buildTestContext } from '../helpers/app.ts';
@@ -22,6 +23,18 @@ beforeEach(resetDb);
 afterAll(closeDb);
 
 describe('deleteExpired', () => {
+  // 004: 期限切れの確認済みの端末
+  it('removes expired trusted devices', async () => {
+    const user = await createUser(ctx, { handle: 'alice' });
+    await db.insert(trustedDevices).values([
+      { userId: user.id, tokenHash: Buffer.from('old'), lastUsedAt: past, expiresAt: past },
+      { userId: user.id, tokenHash: Buffer.from('new'), lastUsedAt: past, expiresAt: future },
+    ]);
+    await deleteExpired(db, now);
+    const rows = await db.select().from(trustedDevices);
+    expect(rows.map((r) => r.tokenHash.toString())).toEqual(['new']);
+  });
+
   it('removes expired rows and keeps valid ones', async () => {
     const user = await createUser(ctx, { handle: 'alice' });
     await db.insert(sessions).values([

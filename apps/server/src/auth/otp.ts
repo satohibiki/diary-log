@@ -6,7 +6,7 @@ import type { AppDeps } from '../app.ts';
 import { emailOtps } from '../platform/db/schema.ts';
 import { errors } from '../platform/errors.ts';
 
-export type OtpPurpose = 'registration' | 'recovery' | 'email_change';
+export type OtpPurpose = 'registration' | 'recovery' | 'email_change' | 'new_device';
 
 const TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;

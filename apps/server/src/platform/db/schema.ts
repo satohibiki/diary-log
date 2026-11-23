@@ -24,22 +24,29 @@ const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull(
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
 export const visibility = pgEnum('visibility', ['private', 'public']);
-export const sessionScope = pgEnum('session_scope', ['full', 'recovery']);
+export const sessionScope = pgEnum('session_scope', ['full', 'recovery', 'device_check']);
 export const challengePurpose = pgEnum('challenge_purpose', ['register', 'login', 'step_up', 'add_passkey', 'recover']);
-export const otpPurpose = pgEnum('otp_purpose', ['registration', 'recovery', 'email_change']);
+export const otpPurpose = pgEnum('otp_purpose', ['registration', 'recovery', 'email_change', 'new_device']);
 export const followStatus = pgEnum('follow_status', ['pending', 'approved']);
 
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  handle: text('handle').notNull().unique(),
-  nickname: text('nickname').notNull(),
-  emailEnc: bytea('email_enc').notNull(),
-  avatarEnc: bytea('avatar_enc'),
-  visibility: visibility('visibility').notNull().default('private'),
-  keyVersion: integer('key_version').notNull(),
-  createdAt: createdAt(),
-  updatedAt: ts('updated_at').notNull().defaultNow(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    handle: text('handle').notNull().unique(),
+    nickname: text('nickname').notNull(),
+    emailEnc: bytea('email_enc').notNull(),
+    avatarEnc: bytea('avatar_enc'),
+    visibility: visibility('visibility').notNull().default('private'),
+    keyVersion: integer('key_version').notNull(),
+    // 004: 復元できない形のため暗号化しない(ADR-0008)。NULL はパスワードを持たないこと
+    passwordHash: text('password_hash'),
+    passwordChangedAt: ts('password_changed_at'),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [check('users_password_pair', sql`(${t.passwordHash} IS NULL) = (${t.passwordChangedAt} IS NULL)`)],
+);
 
 export const passkeys = pgTable(
   'passkeys',
@@ -68,6 +75,19 @@ export const sessions = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index('sessions_user_idx').on(t.userId)],
+);
+
+/** 004: 確認済みの端末。端末を特定できる情報は持たない(data-model.md) */
+export const trustedDevices = pgTable(
+  'trusted_devices',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: bytea('token_hash').notNull(),
+    lastUsedAt: ts('last_used_at').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.tokenHash] }), index('trusted_devices_expires_idx').on(t.expiresAt)],
 );
 
 export const webauthnChallenges = pgTable('webauthn_challenges', {

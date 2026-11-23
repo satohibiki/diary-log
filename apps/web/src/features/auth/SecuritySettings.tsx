@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Passkey, WebAuthnOptions } from '@diary/shared';
+import type { Me, Passkey, WebAuthnOptions } from '@diary/shared';
 import { ErrorMessage } from '../../components/ErrorMessage.tsx';
 import { api } from '../../lib/api-client.ts';
-import { createPasskey, stepUp, type CreationJSON } from '../../lib/passkey.ts';
+import { createPasskey, type CreationJSON } from '../../lib/passkey.ts';
 import { useAction } from '../../lib/use-action.ts';
+import { useMeState } from '../../components/RequireAuth.tsx';
+import { assertSamePassword, explainPasswordError } from './password-errors.ts';
+import { PasswordInput } from './PasswordInput.tsx';
+import { useStepUp } from './StepUpDialog.tsx';
 
 export function SecuritySettings() {
   const [passkeys, setPasskeys] = useState<Passkey[] | null>(null);
   const [name, setName] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const { stepUp, dialog } = useStepUp();
 
   const load = useAction(
     useCallback(async () => {
@@ -21,7 +26,7 @@ export function SecuritySettings() {
   }, [reload]);
 
   const add = useAction(async () => {
-    await stepUp();
+    if (!(await stepUp())) return;
     const { challengeId, options } = await api<WebAuthnOptions<CreationJSON>>('/me/passkeys/options', { method: 'POST' });
     const credential = await createPasskey(options);
     await api('/me/passkeys/finish', { method: 'POST', json: { challengeId, credential, name: name || undefined } });
@@ -32,7 +37,7 @@ export function SecuritySettings() {
 
   const remove = useAction(async (passkey: Passkey) => {
     if (!window.confirm(`パスキー「${passkey.name}」を削除しますか?`)) return;
-    await stepUp();
+    if (!(await stepUp())) return;
     await api(`/me/passkeys/${passkey.id}`, { method: 'DELETE' });
     setNotice('パスキーを削除しました');
     await reload();
@@ -40,7 +45,8 @@ export function SecuritySettings() {
 
   return (
     <section aria-labelledby="security-heading">
-      <h2 id="security-heading">パスキーとメールアドレス</h2>
+      <h2 id="security-heading">パスワード、パスキー、メールアドレス</h2>
+      <PasswordSettings />
       <h3>パスキー</h3>
       <ErrorMessage error={load.error} />
       {passkeys && (
@@ -81,6 +87,7 @@ export function SecuritySettings() {
           </button>
         </p>
       </form>
+      {dialog}
       {notice && <p role="status">{notice}</p>}
       <ErrorMessage error={add.error ?? remove.error} />
       <EmailChange />
@@ -93,9 +100,10 @@ function EmailChange() {
   const [code, setCode] = useState('');
   const [sent, setSent] = useState(false);
   const [done, setDone] = useState(false);
+  const { stepUp, dialog } = useStepUp();
 
   const start = useAction(async () => {
-    await stepUp();
+    if (!(await stepUp())) return;
     await api('/me/email-change/start', { method: 'POST', json: { email } });
     setSent(true);
   });
@@ -130,6 +138,7 @@ function EmailChange() {
               確認メールを送る
             </button>
           </p>
+          {dialog}
           <ErrorMessage error={start.error} />
         </form>
       ) : (
@@ -160,6 +169,81 @@ function EmailChange() {
           <ErrorMessage error={verify.error} />
         </form>
       )}
+    </>
+  );
+}
+
+/** パスワードの設定と変更(004 FR-007、FR-008、FR-016) */
+function PasswordSettings() {
+  const { me, setMe } = useMeState();
+  const [current, setCurrent] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const { stepUp, dialog } = useStepUp();
+  const hadPassword = me.hasPassword;
+
+  const save = useAction(async () => {
+    setNotice(null);
+    assertSamePassword(password, confirmation);
+    // パスワードを持たない利用者は、パスキーで本人確認をしてから設定する
+    if (!hadPassword && !(await stepUp())) return;
+    try {
+      await api('/me/password', {
+        method: 'PUT',
+        json: hadPassword ? { currentPassword: current, newPassword: password } : { newPassword: password },
+      });
+    } catch (error) {
+      throw explainPasswordError(error);
+    }
+    setCurrent('');
+    setPassword('');
+    setConfirmation('');
+    setNotice(`パスワードを${hadPassword ? '変更' : '設定'}しました。ほかの端末はログアウトされました`);
+    setMe(await api<Me>('/me'));
+  });
+
+  return (
+    <>
+      <h3>パスワード</h3>
+      <p>
+        {me.passwordChangedAt
+          ? `設定済み(最終変更: ${new Date(me.passwordChangedAt).toLocaleDateString('ja-JP')})`
+          : 'パスワードは未設定です。設定すると、パスキーに対応していない端末でもログインできます。'}
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save.run();
+        }}
+      >
+        <input type="text" autoComplete="username" value={me.handle} readOnly hidden />
+        {hadPassword && (
+          <PasswordInput
+            id="current-password"
+            label="現在のパスワード"
+            autoComplete="current-password"
+            value={current}
+            onChange={setCurrent}
+          />
+        )}
+        <PasswordInput id="new-password" label="新しいパスワード" autoComplete="new-password" value={password} onChange={setPassword} />
+        <PasswordInput
+          id="new-password-confirmation"
+          label="新しいパスワード(確認)"
+          autoComplete="new-password"
+          value={confirmation}
+          onChange={setConfirmation}
+        />
+        <p>
+          <button type="submit" disabled={save.pending}>
+            {hadPassword ? 'パスワードを変更' : 'パスワードを設定'}
+          </button>
+        </p>
+        {dialog}
+        {notice && <p role="status">{notice}</p>}
+        <ErrorMessage error={save.error} />
+      </form>
     </>
   );
 }

@@ -1,6 +1,6 @@
 // テスト用のユーザーとログイン済みセッションを作成する
 import { randomUUID } from 'node:crypto';
-import { createSessionStore, SESSION_COOKIE } from '../../src/auth/session.ts';
+import { createSessionStore, SESSION_COOKIE, type Scope } from '../../src/auth/session.ts';
 import { blocks, follows, users } from '../../src/platform/db/schema.ts';
 import type { TestContext, TestClient } from './app.ts';
 
@@ -27,7 +27,7 @@ export async function createUser(
 export async function loginAs(
   ctx: TestContext,
   user: TestUser,
-  scope: 'full' | 'recovery' = 'full',
+  scope: Scope = 'full',
 ): Promise<TestClient> {
   const store = createSessionStore(ctx.deps);
   const { token } = await store.create(user.id, scope);

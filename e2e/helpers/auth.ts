@@ -38,6 +38,19 @@ export async function fetchOtp(to: string, after = new Date(0)): Promise<string>
   throw new Error(`${to} 宛てのワンタイムパスワードが届きませんでした`);
 }
 
+/** 指定した宛先に、指定した件名のメールが届くまで最大10秒待つ */
+export async function waitForMail(to: string, subject: string, after = new Date(0)): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const res = await fetch(`${MAILPIT}/search?query=${encodeURIComponent(`to:${to}`)}`);
+    if (!res.ok) throw new Error(`Mailpit の検索に失敗しました: ${res.status}`);
+    const { messages } = (await res.json()) as { messages: (MailSummary & { Subject: string })[] };
+    if (messages.some((m) => m.Subject === subject && new Date(m.Created) >= after)) return;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error(`${to} 宛ての「${subject}」が届きませんでした`);
+}
+
 export function uniqueHandle(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`.slice(0, 20);
 }
